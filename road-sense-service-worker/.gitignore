@@ -1,0 +1,55 @@
+# Django
+*.log
+*.pot
+*.pyc
+__pycache__/
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Database migrations (optional - only if you want to ignore them)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# Media files
+media/
+uploads/
+
+# Static files (collected)
+staticfiles/
+collected_static/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package and build files
+*.egg-info/
+dist/
+build/
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# pytest
+.pytest_cache/
+
+# Secrets
+secrets/*.json
+secrets/*.txt
