@@ -1,1 +1,10 @@
 python-dotenv
+celery
+redis
+Django
+django-celery-results
+pydantic-settings
+pydantic
+scikit-learn
+numpy
+joblib
