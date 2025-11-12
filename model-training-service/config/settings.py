@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Firebase
-    FIREBASE_CREDENTIALS: str = os.getenv("FIREBASE_CREDENTIALS")
+    FIREBASE_CREDENTIALS: str = os.getenv("FIREBASE_CREDENTIALS_BASE64")
     FIREBASE_BUCKET: str = os.getenv("FIREBASE_BUCKET")
     
     # Kaggle
