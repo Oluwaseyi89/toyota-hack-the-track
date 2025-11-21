@@ -13,7 +13,11 @@
     "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "zustand": "^5.0.8"
+    "zustand": "^5.0.8",
+    "chart.js": "^4.0.0",
+    "react-chartjs-2": "^5.0.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^20",

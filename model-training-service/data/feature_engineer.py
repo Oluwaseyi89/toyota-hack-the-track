@@ -1,621 +1,663 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, Optional, Tuple, Any
 from scipy import stats
 
+
 class FeatureEngineer:
-    """Engineer advanced features from processed racing data including telemetry"""
-    
+    """
+    Feature engineering for racing analytics - Consistent with FirebaseDataLoader schemas.
+    Uses EXACT column names from the data structures provided.
+    """
+
+    # ----------------------
+    # Helper / normalization - Updated for FirebaseDataLoader consistency
+    # ----------------------
     @staticmethod
-    def engineer_tire_features(lap_data: pd.DataFrame, telemetry_data: pd.DataFrame) -> pd.DataFrame:
-        """Create advanced tire degradation features using lap data and telemetry"""
-        if lap_data.empty:
-            return lap_data
-            
-        df = lap_data.copy()
+    def _first_existing_column(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    @staticmethod
+    def _ensure_number_column(df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[str]]:
+        """
+        Guarantee that dataframe has a numeric 'NUMBER' column using EXACT FirebaseDataLoader names.
+        """
+        df = df.copy()
+        candidates = ["NUMBER", "DRIVER_NUMBER"]  # EXACT column names from your data
+        col = FeatureEngineer._first_existing_column(df, candidates)
         
-        # Group by car to calculate individual tire metrics
-        for car_number in df['NUMBER'].unique():
-            car_mask = df['NUMBER'] == car_number
-            car_laps = df[car_mask].sort_values('LAP_NUMBER')
+        if col:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            if col != "NUMBER":
+                df = df.rename(columns={col: "NUMBER"})
+                return df, "NUMBER"
+            return df, col
+        return df, None
+
+    @staticmethod
+    def _ensure_lap_number(df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure LAP_NUMBER column exists using EXACT FirebaseDataLoader names."""
+        df = df.copy()
+        candidates = ["LAP_NUMBER", "lap"]  # EXACT column names
+        
+        col = FeatureEngineer._first_existing_column(df, candidates)
+        if col and col != "LAP_NUMBER":
+            df = df.rename(columns={col: "LAP_NUMBER"})
             
-            if len(car_laps) < 5:
-                continue
+        if "LAP_NUMBER" not in df.columns:
+            if "NUMBER" in df.columns:
+                df["LAP_NUMBER"] = df.groupby("NUMBER").cumcount() + 1
+            else:
+                df["LAP_NUMBER"] = np.arange(len(df)) + 1
                 
-            # Rolling performance degradation
-            lap_times = car_laps['LAP_TIME_SECONDS'].values
-            lap_numbers = car_laps['LAP_NUMBER'].values
-            
-            # Calculate degradation rate using linear regression
-            if len(lap_times) >= 8:
-                try:
-                    # Use laps 5-15 for stable degradation analysis
-                    mask = (lap_numbers >= 5) & (lap_numbers <= 15)
-                    if mask.sum() >= 5:
-                        deg_laps = lap_numbers[mask]
-                        deg_times = lap_times[mask]
-                        slope, _, r_value, _, _ = stats.linregress(deg_laps, deg_times)
-                        df.loc[car_mask, 'TIRE_DEGRADATION_RATE'] = slope if r_value**2 > 0.5 else 0.0
-                except:
-                    df.loc[car_mask, 'TIRE_DEGRADATION_RATE'] = 0.0
-            
-            # Sector-specific degradation patterns
-            for sector in ['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']:
-                if sector in car_laps.columns:
-                    sector_times = car_laps[sector].values
-                    if len(sector_times) >= 5 and not np.all(np.isnan(sector_times)):
-                        try:
-                            sector_slope = np.polyfit(lap_numbers[:len(sector_times)], 
-                                                    sector_times, 1)[0]
-                            df.loc[car_mask, f'{sector}_DEGRADATION'] = sector_slope
-                        except:
-                            df.loc[car_mask, f'{sector}_DEGRADATION'] = 0.0
-            
-            # Performance consistency (lower = better tire management)
-            if len(lap_times) >= 10:
-                df.loc[car_mask, 'PERFORMANCE_CONSISTENCY'] = np.std(lap_times)
-            
-            # Tire age with non-linear effects
-            df.loc[car_mask, 'TIRE_AGE_NONLINEAR'] = np.log1p(car_laps['LAP_NUMBER']) * 0.5
-        
-        # Add telemetry-based tire features if available
-        if not telemetry_data.empty:
-            df = FeatureEngineer._add_telemetry_tire_features(df, telemetry_data)
-        
+        df["LAP_NUMBER"] = pd.to_numeric(df["LAP_NUMBER"], errors="coerce").fillna(0)
         return df
-    
+
     @staticmethod
-    def _add_telemetry_tire_features(lap_data: pd.DataFrame, telemetry_data: pd.DataFrame) -> pd.DataFrame:
-        """Add tire-related features from telemetry data"""
-        df = lap_data.copy()
-        
-        # Group telemetry by car and lap
-        telemetry_features = []
-        for (car_number, lap_num), lap_telemetry in telemetry_data.groupby(['vehicle_number', 'lap']):
-            if len(lap_telemetry) < 10:  # Minimum telemetry points
-                continue
-                
-            # Calculate driving style metrics that affect tires
-            lateral_g_mean = lap_telemetry['LATERAL_ACCEL'].abs().mean()
-            lateral_g_std = lap_telemetry['LATERAL_ACCEL'].abs().std()
-            brake_pressure_mean = lap_telemetry['TOTAL_BRAKE_PRESSURE'].mean()
-            
-            # Steering activity (indicator of tire scrubbing)
-            steering_activity = lap_telemetry['STEERING_ANGLE'].diff().abs().sum()
-            
-            telemetry_features.append({
-                'NUMBER': car_number,
-                'LAP_NUMBER': lap_num,
-                'LATERAL_G_MEAN': lateral_g_mean,
-                'LATERAL_G_VARIANCE': lateral_g_std,
-                'BRAKE_INTENSITY': brake_pressure_mean,
-                'STEERING_ACTIVITY': steering_activity
-            })
-        
-        if telemetry_features:
-            telemetry_df = pd.DataFrame(telemetry_features)
-            df = df.merge(telemetry_df, on=['NUMBER', 'LAP_NUMBER'], how='left')
-        
-        return df
-    
-    @staticmethod
-    def engineer_fuel_features(lap_data: pd.DataFrame, telemetry_data: pd.DataFrame) -> pd.DataFrame:
-        """Create realistic fuel consumption features using telemetry data"""
-        if lap_data.empty:
-            return lap_data
-            
-        df = lap_data.copy()
-        
-        for car_number in df['NUMBER'].unique():
-            car_mask = df['NUMBER'] == car_number
-            car_laps = df[car_mask].sort_values('LAP_NUMBER')
-            
-            if len(car_laps) < 5:
-                continue
-            
-            # Fuel load estimation (non-linear due to weight effect)
-            total_race_laps = car_laps['LAP_NUMBER'].max()
-            current_laps = car_laps['LAP_NUMBER'].values
-            
-            # Weight reduction effect (faster at lower fuel)
-            base_fuel = 80.0  # liters for GR86
-            fuel_remaining = np.maximum(0, base_fuel * (1 - current_laps / total_race_laps))
-            df.loc[car_mask, 'ESTIMATED_FUEL_LOAD_KG'] = fuel_remaining * 0.75  # Convert to kg
-            
-            # Fuel effect on lap time (empirical model)
-            weight_penalty = fuel_remaining * 0.03  # 0.03s per kg
-            df.loc[car_mask, 'FUEL_PENALTY_ESTIMATE'] = weight_penalty
-            
-            # Fuel burn rate estimation
-            if len(current_laps) > 1:
-                fuel_burn_rate = np.diff(fuel_remaining) / np.diff(current_laps)
-                df.loc[car_mask, 'FUEL_BURN_RATE'] = np.concatenate([[fuel_burn_rate[0]], fuel_burn_rate])
-        
-        # Add throttle-based fuel consumption if telemetry available
-        if not telemetry_data.empty:
-            df = FeatureEngineer._add_telemetry_fuel_features(df, telemetry_data)
-        
-        return df
-    
-    @staticmethod
-    def _add_telemetry_fuel_features(lap_data: pd.DataFrame, telemetry_data: pd.DataFrame) -> pd.DataFrame:
-        """Add fuel-related features from telemetry data"""
-        df = lap_data.copy()
-        
-        throttle_features = []
-        for (car_number, lap_num), lap_telemetry in telemetry_data.groupby(['vehicle_number', 'lap']):
-            if len(lap_telemetry) < 10:
-                continue
-            
-            # Throttle usage patterns
-            throttle_mean = lap_telemetry['THROTTLE_POSITION'].mean()
-            throttle_std = lap_telemetry['THROTTLE_POSITION'].std()
-            
-            # High-load throttle usage (indicative of fuel consumption)
-            high_throttle_pct = (lap_telemetry['THROTTLE_POSITION'] > 80).mean() * 100
-            
-            # Engine load approximation
-            avg_speed = lap_telemetry.get('KPH', 0).mean()
-            engine_load = (throttle_mean * avg_speed) / 10000  # Simplified engine load
-            
-            throttle_features.append({
-                'NUMBER': car_number,
-                'LAP_NUMBER': lap_num,
-                'THROTTLE_MEAN': throttle_mean,
-                'THROTTLE_VARIANCE': throttle_std,
-                'HIGH_THROTTLE_PCT': high_throttle_pct,
-                'ENGINE_LOAD_ESTIMATE': engine_load
-            })
-        
-        if throttle_features:
-            throttle_df = pd.DataFrame(throttle_features)
-            df = df.merge(throttle_df, on=['NUMBER', 'LAP_NUMBER'], how='left')
-            
-            # Fuel consumption estimate based on throttle usage
-            if 'THROTTLE_MEAN' in df.columns and 'ENGINE_LOAD_ESTIMATE' in df.columns:
-                base_consumption = 2.8  # liters per lap
-                throttle_factor = df['THROTTLE_MEAN'] / 100 * 0.8
-                load_factor = df['ENGINE_LOAD_ESTIMATE'] * 1.2
-                df['ESTIMATED_FUEL_CONSUMPTION'] = base_consumption * (1 + throttle_factor + load_factor)
-        
-        return df
-    
-    @staticmethod
-    def engineer_strategy_features(race_data: pd.DataFrame, lap_data: pd.DataFrame) -> pd.DataFrame:
-        """Create realistic race strategy features"""
-        strategy_features = []
-        
-        if race_data.empty or lap_data.empty:
-            return pd.DataFrame()
-        
-        for car_number in race_data['NUMBER'].unique():
-            car_race = race_data[race_data['NUMBER'] == car_number]
-            if car_race.empty:
-                continue
-                
-            car_race = car_race.iloc[0]
-            car_laps = lap_data[lap_data['NUMBER'] == car_number].sort_values('LAP_NUMBER')
-            
-            if len(car_laps) < 5:
-                continue
-            
-            # Position and gap analysis
-            position = car_race.get('POSITION', 1)
-            gap_to_leader = FeatureEngineer._parse_gap(car_race.get('GAP_FIRST', '0'))
-            gap_to_next = FeatureEngineer._parse_gap(car_race.get('GAP_PREVIOUS', '0'))
-            
-            # Performance analysis
-            lap_times = car_laps['LAP_TIME_SECONDS'].values
-            best_lap_time = np.min(lap_times)
-            avg_lap_time = np.mean(lap_times)
-            consistency = np.std(lap_times)
-            
-            # Race situation analysis
-            total_laps = car_race.get('LAPS', len(car_laps))
-            best_lap_num = car_laps.loc[car_laps['LAP_TIME_SECONDS'].idxmin(), 'LAP_NUMBER']
-            race_progress = best_lap_num / total_laps if total_laps > 0 else 0
-            
-            # Competitive pressure metrics
-            position_pressure = 1.0 / max(1, position)
-            gap_pressure = 1.0 / max(1, gap_to_next) if gap_to_next > 0 else 1.0
-            
-            # Pace analysis
-            pace_deficit = (avg_lap_time - best_lap_time) / best_lap_time
-            has_winning_pace = 1 if pace_deficit < 0.02 and position <= 5 else 0  # Within 2% of best pace
-            
-            strategy_features.append({
-                'car_number': car_number,
-                'position': position,
-                'gap_to_leader': gap_to_leader,
-                'gap_to_next': gap_to_next,
-                'best_lap_time': best_lap_time,
-                'avg_lap_time': avg_lap_time,
-                'performance_consistency': consistency,
-                'pace_deficit': pace_deficit,
-                'optimal_lap_timing': best_lap_num,
-                'race_progress': race_progress,
-                'position_pressure': position_pressure,
-                'gap_pressure': gap_pressure,
-                'total_laps': total_laps,
-                'has_winning_pace': has_winning_pace,
-                'needs_strategy_change': 1 if (position_pressure > 0.3 or pace_deficit > 0.03) else 0
-            })
-        
-        return pd.DataFrame(strategy_features) if strategy_features else pd.DataFrame()
-    
-    @staticmethod
-    def engineer_track_features(track_name: str, lap_data: pd.DataFrame) -> pd.DataFrame:
-        """Create track-specific features based on actual performance data"""
-        if lap_data.empty:
-            return lap_data
-            
-        df = lap_data.copy()
-        
-        # Calculate actual track characteristics from sector data
-        if all(col in df.columns for col in ['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']):
-            sector_means = df[['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']].mean()
-            total_time = sector_means.sum()
-            
-            # Track layout characteristics
-            df['S1_PERCENTAGE'] = sector_means['S1_SECONDS'] / total_time
-            df['S2_PERCENTAGE'] = sector_means['S2_SECONDS'] / total_time  
-            df['S3_PERCENTAGE'] = sector_means['S3_SECONDS'] / total_time
-            
-            # Track technicality (higher variance = more technical)
-            sector_variance = df[['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']].var().mean()
-            df['TRACK_TECHNICALITY'] = min(1.0, sector_variance / 2.0)
-        
-        # Track-specific wear factors based on real characteristics
-        track_wear_map = {
-            'sebring': 0.9,      # Bumpy surface, high wear
-            'barber': 0.85,      # Technical, elevation changes
-            'sonoma': 0.8,       # Hilly, abrasive
-            'road-america': 0.7, # Long straights, medium wear
-            'vir': 0.75,         # Balanced
-            'cota': 0.6,         # Modern, smooth
-            'indianapolis': 0.5  # Oval, low wear
-        }
-        
-        df['TRACK_WEAR_FACTOR'] = track_wear_map.get(track_name.lower(), 0.7)
-        
-        # Overtaking potential (based on speed variance)
-        if 'KPH' in df.columns:
-            speed_variance = df['KPH'].var() / df['KPH'].mean() if df['KPH'].mean() > 0 else 0.1
-            df['OVERTAKING_POTENTIAL'] = min(1.0, speed_variance * 10)
-        
-        return df
-    
-    @staticmethod
-    def engineer_weather_features(weather_data: pd.DataFrame, lap_data: pd.DataFrame) -> pd.DataFrame:
-        """Create realistic weather impact features"""
-        if weather_data.empty or lap_data.empty:
-            return lap_data.copy()
-            
-        df = lap_data.copy()
-        
-        # Calculate weather conditions during the session
-        weather_avg = weather_data.agg({
-            'AIR_TEMP': 'mean',
-            'TRACK_TEMP': 'mean', 
-            'HUMIDITY': 'mean',
-            'PRESSURE': 'mean',
-            'WIND_SPEED': 'mean',
-            'RAIN': 'max'
-        })
-        
-        # Temperature impact on performance
-        optimal_temp = 25.0  # Optimal air temperature
-        temp_diff = weather_avg['AIR_TEMP'] - optimal_temp
-        df['TEMP_IMPACT'] = temp_diff * 0.03  # 0.03s per degree from optimal
-        
-        # Track temperature effect on tires
-        optimal_track_temp = 35.0
-        track_temp_diff = weather_avg['TRACK_TEMP'] - optimal_track_temp
-        df['TRACK_TEMP_IMPACT'] = track_temp_diff * 0.02  # 0.02s per degree
-        
-        # Humidity effect (engine performance)
-        optimal_humidity = 50.0
-        humidity_diff = weather_avg['HUMIDITY'] - optimal_humidity
-        df['HUMIDITY_IMPACT'] = humidity_diff * 0.001  # Small effect per percent
-        
-        # Air density effect (engine power)
-        air_density = FeatureEngineer._calculate_air_density(
-            weather_avg['AIR_TEMP'], 
-            weather_avg['PRESSURE'],
-            weather_avg['HUMIDITY']
-        )
-        std_air_density = 1.225  # kg/m³ at sea level, 15°C
-        density_ratio = air_density / std_air_density
-        df['AIR_DENSITY_IMPACT'] = (1 - density_ratio) * 2.0  # 2s effect at extreme conditions
-        
-        # Rain impact (major effect)
-        rain_effect = weather_avg['RAIN'] * 1.5  # 1.5s per mm of rain
-        df['RAIN_IMPACT'] = rain_effect
-        
-        # Combined weather effect
-        df['TOTAL_WEATHER_IMPACT'] = (
-            df['TEMP_IMPACT'] + df['TRACK_TEMP_IMPACT'] + 
-            df['HUMIDITY_IMPACT'] + df['AIR_DENSITY_IMPACT'] + 
-            df['RAIN_IMPACT']
-        )
-        
-        return df
-    
-    @staticmethod
-    def _calculate_air_density(air_temp: float, pressure: float, humidity: float) -> float:
-        """Calculate air density for engine performance impact"""
-        # Simplified air density calculation
-        R = 287.05  # J/kg·K
-        temp_k = air_temp + 273.15
-        
-        # Vapor pressure calculation
-        vapor_pressure = 0.611 * np.exp(17.27 * air_temp / (air_temp + 237.3)) * (humidity / 100)
-        
-        # Dry air pressure (simplified)
-        dry_pressure = pressure - vapor_pressure
-        
-        # Air density in kg/m³
-        return (dry_pressure * 100) / (R * temp_k)  # Convert pressure to Pa
-    
-    @staticmethod
-    def create_composite_features(processed_data: Dict) -> Dict:
-        """Create all composite features for model training"""
-        enhanced_data = {}
-        
-        for track_name, data in processed_data.items():
-            lap_data = data['lap_data']
-            race_data = data['race_data']
-            weather_data = data['weather_data']
-            telemetry_data = data.get('telemetry_data', pd.DataFrame())
-            
-            # Skip if no lap data
-            if lap_data.empty:
-                enhanced_data[track_name] = data
-                continue
-            
-            # Apply all feature engineering steps with telemetry integration
-            lap_data = FeatureEngineer.engineer_tire_features(lap_data, telemetry_data)
-            lap_data = FeatureEngineer.engineer_fuel_features(lap_data, telemetry_data)
-            lap_data = FeatureEngineer.engineer_track_features(track_name, lap_data)
-            lap_data = FeatureEngineer.engineer_weather_features(weather_data, lap_data)
-            
-            strategy_features = FeatureEngineer.engineer_strategy_features(race_data, lap_data)
-            
-            enhanced_data[track_name] = {
-                'lap_data': lap_data,
-                'race_data': race_data,
-                'weather_data': weather_data,
-                'telemetry_data': telemetry_data,
-                'strategy_features': strategy_features
-            }
-        
-        return enhanced_data
-    
-    @staticmethod
-    def _parse_gap(gap_str: str) -> float:
-        """Parse gap string to seconds"""
-        if pd.isna(gap_str) or gap_str in ['-', '']:
-            return 0.0
+    def _safe_regression(x: np.ndarray, y: np.ndarray) -> Optional[Tuple[float, float]]:
+        """
+        Run a robust linear regression if inputs are sane.
+        Returns (slope, r_squared) or None on failure/safety checks.
+        """
         try:
-            gap_str = str(gap_str).replace('+', '').strip()
-            return float(gap_str)
-        except:
+            mask = (~np.isnan(x)) & (~np.isnan(y))
+            if mask.sum() < 5:
+                return None
+            xv = x[mask].astype(float)
+            yv = y[mask].astype(float)
+            if xv.size < 5:
+                return None
+            slope, intercept, r_value, p_value, std_err = stats.linregress(xv, yv)
+            r2 = float(r_value ** 2)
+            return float(slope), r2
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_polyfit_slope(x: np.ndarray, y: np.ndarray) -> Optional[float]:
+        """Try to get first-degree polynomial slope with safety checks."""
+        try:
+            mask = (~np.isnan(x)) & (~np.isnan(y))
+            if mask.sum() < 5:
+                return None
+            xv = x[mask].astype(float)
+            yv = y[mask].astype(float)
+            if xv.size < 5:
+                return None
+            coeffs = np.polyfit(xv, yv, 1)
+            slope = float(coeffs[0])
+            return slope
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------
+    # TIRE FEATURES - Updated for FirebaseDataLoader consistency
+    # ------------------------------------------------------------
+    @staticmethod
+    def engineer_tire_features(pit_data: pd.DataFrame,
+                               telemetry_data: pd.DataFrame) -> pd.DataFrame:
+        """Engineer tire features using EXACT column names from pit_data and telemetry_data."""
+        if pit_data is None or pit_data.empty:
+            return pd.DataFrame()
+
+        pit_df = pit_data.copy()
+        pit_df, id_col = FeatureEngineer._ensure_number_column(pit_df)
+        pit_df = FeatureEngineer._ensure_lap_number(pit_df)
+
+        if id_col is None or "NUMBER" not in pit_df.columns:
+            return pit_df
+
+        # Initialize tire feature columns
+        pit_df["TIRE_DEGRADATION_RATE"] = np.nan
+        pit_df["PERFORMANCE_CONSISTENCY"] = np.nan
+        pit_df["TIRE_AGE_NONLINEAR"] = np.nan
+
+        try:
+            for car_number in pd.unique(pit_df["NUMBER"].dropna()):
+                car_mask = pit_df["NUMBER"] == car_number
+                car_laps = pit_df.loc[car_mask].sort_values("LAP_NUMBER")
+
+                if car_laps.shape[0] < 5:
+                    continue
+
+                # Use LAP_TIME_SECONDS or convert LAP_TIME using EXACT column names
+                if "LAP_TIME_SECONDS" in car_laps.columns:
+                    lap_times = pd.to_numeric(car_laps["LAP_TIME_SECONDS"], errors="coerce").values
+                    lap_numbers = pd.to_numeric(car_laps["LAP_NUMBER"], errors="coerce").values
+                elif "LAP_TIME" in car_laps.columns:
+                    lap_times = car_laps["LAP_TIME"].apply(FeatureEngineer._time_to_seconds).values
+                    lap_numbers = pd.to_numeric(car_laps["LAP_NUMBER"], errors="coerce").values
+                else:
+                    lap_times = np.array([])
+                    lap_numbers = np.array([])
+
+                # Lap time degradation analysis
+                if lap_times.size >= 8:
+                    mask_range = (lap_numbers >= 5) & (lap_numbers <= 15)
+                    if mask_range.sum() >= 5:
+                        res = FeatureEngineer._safe_regression(lap_numbers, lap_times)
+                        if res is not None:
+                            slope, r2 = res
+                            if r2 > 0.4:
+                                pit_df.loc[car_mask, "TIRE_DEGRADATION_RATE"] = slope
+                            else:
+                                pit_df.loc[car_mask, "TIRE_DEGRADATION_RATE"] = 0.0
+
+                # Sector degradation using EXACT column names
+                for sector in ["S1_SECONDS", "S2_SECONDS", "S3_SECONDS"]:
+                    if sector in car_laps.columns:
+                        sector_times = pd.to_numeric(car_laps[sector], errors="coerce").fillna(0).values
+                        slope = FeatureEngineer._safe_polyfit_slope(car_laps["LAP_NUMBER"].values, sector_times)
+                        if slope is not None:
+                            pit_df.loc[car_mask, f"{sector}_DEGRADATION"] = slope
+
+                # Performance consistency
+                if "LAP_TIME_SECONDS" in car_laps.columns:
+                    try:
+                        pit_df.loc[car_mask, "PERFORMANCE_CONSISTENCY"] = \
+                            float(np.nanstd(pd.to_numeric(car_laps["LAP_TIME_SECONDS"], errors="coerce")))
+                    except Exception:
+                        pit_df.loc[car_mask, "PERFORMANCE_CONSISTENCY"] = np.nan
+
+                # Non-linear tire age effect
+                try:
+                    pit_df.loc[car_mask, "TIRE_AGE_NONLINEAR"] = np.log1p(
+                        pd.to_numeric(car_laps["LAP_NUMBER"], errors="coerce")
+                    ).fillna(0).values * 0.5
+                except Exception:
+                    pit_df.loc[car_mask, "TIRE_AGE_NONLINEAR"] = np.nan
+
+        except Exception as e:
+            print(f"⚠️ Tire feature engineering failed: {e}")
+
+        # Add telemetry-based tire features if available
+        if telemetry_data is not None and not telemetry_data.empty:
+            try:
+                pit_df = FeatureEngineer._add_telemetry_tire_features(pit_df, telemetry_data)
+            except Exception as e:
+                print(f"⚠️ Telemetry tire merging failed: {e}")
+
+        return pit_df
+
+    @staticmethod
+    def _add_telemetry_tire_features(pit_df: pd.DataFrame,
+                                     telemetry_df: pd.DataFrame) -> pd.DataFrame:
+        """Add telemetry-based tire features using EXACT column names."""
+        df = pit_df.copy()
+        telemetry = telemetry_df.copy()
+
+        # Use EXACT column names from telemetry_data
+        if "vehicle_id" not in telemetry.columns or "lap" not in telemetry.columns:
+            return df
+
+        # Ensure numeric types
+        telemetry["vehicle_id"] = telemetry["vehicle_id"].astype(str)
+        telemetry["lap"] = pd.to_numeric(telemetry["lap"], errors="coerce").fillna(0)
+
+        # Extract vehicle number from vehicle_id (e.g., "GR86-002-000" -> 2)
+        telemetry["NUMBER"] = telemetry["vehicle_id"].apply(
+            lambda x: int(x.split('-')[1]) if '-' in x and x.split('-')[1].isdigit() else 0
+        )
+
+        # Aggregate telemetry features using EXACT column names
+        agg_cols = {}
+        if "accy_can" in telemetry.columns:  # Lateral acceleration
+            agg_cols["accy_can"] = ["mean", "std"]
+        if "accx_can" in telemetry.columns:  # Longitudinal acceleration (braking)
+            agg_cols["accx_can"] = ["mean"]
+
+        if not agg_cols:
+            return df
+
+        try:
+            # Group by NUMBER and lap (LAP_NUMBER in pit_data)
+            telemetry_agg = telemetry.groupby(["NUMBER", "lap"]).agg(agg_cols)
+            telemetry_agg.columns = ["_".join(col).strip() for col in telemetry_agg.columns.values]
+            telemetry_agg = telemetry_agg.reset_index()
+
+            # Rename to meaningful feature names
+            rename_map = {}
+            if "accy_can_mean" in telemetry_agg.columns:
+                rename_map["accy_can_mean"] = "LATERAL_G_MEAN"
+            if "accy_can_std" in telemetry_agg.columns:
+                rename_map["accy_can_std"] = "LATERAL_G_STD"
+            if "accx_can_mean" in telemetry_agg.columns:
+                rename_map["accx_can_mean"] = "LONGITUDINAL_G_MEAN"
+
+            telemetry_agg = telemetry_agg.rename(columns=rename_map)
+            telemetry_agg = telemetry_agg.rename(columns={"lap": "LAP_NUMBER"})
+
+            # Ensure proper numeric types
+            telemetry_agg["NUMBER"] = pd.to_numeric(telemetry_agg["NUMBER"], errors="coerce").fillna(0)
+            telemetry_agg["LAP_NUMBER"] = pd.to_numeric(telemetry_agg["LAP_NUMBER"], errors="coerce").fillna(0)
+
+            # Merge with pit data
+            df = df.merge(telemetry_agg, on=["NUMBER", "LAP_NUMBER"], how="left")
+
+        except Exception as e:
+            print(f"⚠️ Telemetry tire feature aggregation failed: {e}")
+
+        return df
+
+    # ------------------------------------------------------------
+    # FUEL FEATURES - Updated for FirebaseDataLoader consistency
+    # ------------------------------------------------------------
+    @staticmethod
+    def engineer_fuel_features(pit_data: pd.DataFrame,
+                               telemetry_data: pd.DataFrame) -> pd.DataFrame:
+        """Engineer fuel features using EXACT column names."""
+        if pit_data is None or pit_data.empty:
+            return pd.DataFrame()
+
+        df = pit_data.copy()
+        df, _ = FeatureEngineer._ensure_number_column(df)
+        df = FeatureEngineer._ensure_lap_number(df)
+
+        try:
+            # Fuel efficiency estimation using EXACT column names
+            if "LAP_TIME_SECONDS" in df.columns:
+                df["FUEL_EFFICIENCY_EST"] = 1.0 / (
+                    pd.to_numeric(df["LAP_TIME_SECONDS"], errors="coerce").fillna(1.0) + 0.1
+                )
+            else:
+                df["FUEL_EFFICIENCY_EST"] = np.nan
+
+            # Speed-based fuel consumption
+            if "KPH" in df.columns:
+                kph = pd.to_numeric(df["KPH"], errors="coerce").fillna(0)
+                df["FUEL_CONSUMPTION_RATE"] = kph * 0.02  # Simplified model
+
+            # Add telemetry-based fuel features
+            if telemetry_data is not None and not telemetry_data.empty:
+                df = FeatureEngineer._add_telemetry_fuel_features(df, telemetry_data)
+
+        except Exception as e:
+            print(f"⚠️ Fuel feature engineering failed: {e}")
+
+        return df
+
+    @staticmethod
+    def _add_telemetry_fuel_features(pit_df: pd.DataFrame,
+                                     telemetry_df: pd.DataFrame) -> pd.DataFrame:
+        """Add telemetry-based fuel features using EXACT column names."""
+        df = pit_df.copy()
+        telemetry = telemetry_df.copy()
+
+        if "vehicle_id" not in telemetry.columns or "lap" not in telemetry.columns:
+            return df
+
+        # Extract vehicle number and ensure numeric types
+        telemetry["NUMBER"] = telemetry["vehicle_id"].apply(
+            lambda x: int(x.split('-')[1]) if '-' in x and x.split('-')[1].isdigit() else 0
+        )
+        telemetry["lap"] = pd.to_numeric(telemetry["lap"], errors="coerce").fillna(0)
+
+        # Calculate throttle usage and speed patterns
+        agg_cols = {}
+        if "speed" in telemetry.columns:
+            agg_cols["speed"] = ["mean", "std"]
+        if "gear" in telemetry.columns:
+            agg_cols["gear"] = ["mean"]
+
+        if agg_cols:
+            try:
+                telemetry_agg = telemetry.groupby(["NUMBER", "lap"]).agg(agg_cols)
+                telemetry_agg.columns = ["_".join(col).strip() for col in telemetry_agg.columns.values]
+                telemetry_agg = telemetry_agg.reset_index()
+
+                # Rename columns
+                rename_map = {}
+                if "speed_mean" in telemetry_agg.columns:
+                    rename_map["speed_mean"] = "TELEMETRY_SPEED_MEAN"
+                if "speed_std" in telemetry_agg.columns:
+                    rename_map["speed_std"] = "TELEMETRY_SPEED_STD"
+                if "gear_mean" in telemetry_agg.columns:
+                    rename_map["gear_mean"] = "AVG_GEAR"
+
+                telemetry_agg = telemetry_agg.rename(columns=rename_map)
+                telemetry_agg = telemetry_agg.rename(columns={"lap": "LAP_NUMBER"})
+
+                # Ensure numeric types
+                telemetry_agg["NUMBER"] = pd.to_numeric(telemetry_agg["NUMBER"], errors="coerce").fillna(0)
+                telemetry_agg["LAP_NUMBER"] = pd.to_numeric(telemetry_agg["LAP_NUMBER"], errors="coerce").fillna(0)
+
+                # Merge with pit data
+                df = df.merge(telemetry_agg, on=["NUMBER", "LAP_NUMBER"], how="left")
+
+            except Exception as e:
+                print(f"⚠️ Telemetry fuel feature aggregation failed: {e}")
+
+        return df
+
+    # ------------------------------------------------------------
+    # TRACK FEATURES - Updated for actual track names
+    # ------------------------------------------------------------
+    @staticmethod
+    def engineer_track_features(track_name: str,
+                                pit_data: pd.DataFrame) -> pd.DataFrame:
+        """Engineer track-specific features using EXACT track names."""
+        if pit_data is None or pit_data.empty:
+            return pd.DataFrame()
+
+        df = pit_data.copy()
+
+        # Track characteristics based on actual track names
+        track_wear_map = {
+            "barber": 0.8, "cota": 0.6, "indianapolis": 0.5,
+            "road_america": 0.7, "sebring": 0.9, "sonoma": 0.8, "virginia": 0.75
+        }
+
+        track_overtaking_map = {
+            "barber": 0.6, "cota": 0.8, "indianapolis": 0.9,
+            "road_america": 0.7, "sebring": 0.5, "sonoma": 0.4, "virginia": 0.6
+        }
+
+        try:
+            if track_name:
+                df["TRACK_WEAR_FACTOR"] = track_wear_map.get(str(track_name).lower(), 0.7)
+                df["OVERTAKING_POTENTIAL"] = track_overtaking_map.get(str(track_name).lower(), 0.5)
+            else:
+                df["TRACK_WEAR_FACTOR"] = 0.7
+                df["OVERTAKING_POTENTIAL"] = 0.5
+
+            # Speed-based overtaking potential refinement
+            if "KPH" in df.columns:
+                try:
+                    kph = pd.to_numeric(df["KPH"], errors="coerce").fillna(0)
+                    mean_speed = float(kph.mean()) if not kph.empty else 0.0
+                    var_speed = float(kph.var()) if not kph.empty else 0.0
+                    speed_factor = min(1.0, (var_speed / (mean_speed + 1e-6)) * 10) if mean_speed > 0 else 0.1
+                    df["OVERTAKING_POTENTIAL"] = df["OVERTAKING_POTENTIAL"] * 0.7 + speed_factor * 0.3
+                except Exception:
+                    pass
+
+        except Exception as e:
+            print(f"⚠️ Track feature engineering failed: {e}")
+
+        return df
+
+    # ------------------------------------------------------------
+    # WEATHER FEATURES - Updated for FirebaseDataLoader consistency
+    # ------------------------------------------------------------
+    @staticmethod
+    def engineer_weather_features(weather_data: pd.DataFrame,
+                                  pit_data: pd.DataFrame) -> pd.DataFrame:
+        """Engineer weather features using EXACT column names."""
+        if pit_data is None or pit_data.empty:
+            return pd.DataFrame()
+
+        df = pit_data.copy()
+
+        try:
+            if weather_data is None or weather_data.empty:
+                # Set default weather impacts
+                df["TEMP_IMPACT"] = 0.0
+                df["TRACK_TEMP_IMPACT"] = 0.0
+                df["RAIN_IMPACT"] = 0.0
+                return df
+
+            weather = weather_data.copy()
+
+            # Ensure numeric types using EXACT column names
+            for col in ["AIR_TEMP", "TRACK_TEMP", "HUMIDITY", "PRESSURE", "WIND_SPEED", "RAIN"]:
+                if col in weather.columns:
+                    weather[col] = pd.to_numeric(weather[col], errors="coerce").fillna(0)
+
+            # Calculate weather impacts
+            if "AIR_TEMP" in weather.columns:
+                temp_impact = (float(weather["AIR_TEMP"].mean()) - 25.0) * 0.03
+                df["TEMP_IMPACT"] = temp_impact
+
+            if "TRACK_TEMP" in weather.columns:
+                track_temp_impact = (float(weather["TRACK_TEMP"].mean()) - 35.0) * 0.02
+                df["TRACK_TEMP_IMPACT"] = track_temp_impact
+
+            if "RAIN" in weather.columns:
+                rain_impact = float(weather["RAIN"].max()) * 1.5
+                df["RAIN_IMPACT"] = rain_impact
+
+            # Combined weather effect
+            df["TOTAL_WEATHER_IMPACT"] = (
+                df.get("TEMP_IMPACT", 0) + 
+                df.get("TRACK_TEMP_IMPACT", 0) + 
+                df.get("RAIN_IMPACT", 0)
+            )
+
+        except Exception as e:
+            print(f"⚠️ Weather feature engineering failed: {e}")
+
+        return df
+
+    # ------------------------------------------------------------
+    # STRATEGY FEATURES - Updated for FirebaseDataLoader consistency
+    # ------------------------------------------------------------
+    @staticmethod
+    def engineer_strategy_features(race_data: pd.DataFrame,
+                                   pit_data: pd.DataFrame) -> pd.DataFrame:
+        """Engineer strategy features using EXACT column names."""
+        if race_data is None or race_data.empty or pit_data is None or pit_data.empty:
+            return pd.DataFrame()
+
+        race_df = race_data.copy()
+        pit_df = pit_data.copy()
+
+        race_df, _ = FeatureEngineer._ensure_number_column(race_df)
+        pit_df, _ = FeatureEngineer._ensure_number_column(pit_df)
+        pit_df = FeatureEngineer._ensure_lap_number(pit_df)
+
+        if "NUMBER" not in race_df.columns or "NUMBER" not in pit_df.columns:
+            return pd.DataFrame()
+
+        rows = []
+        try:
+            unique_numbers = pd.unique(race_df["NUMBER"].dropna())
+            for car_number in unique_numbers:
+                try:
+                    car_race = race_df[race_df["NUMBER"] == car_number]
+                    if car_race.empty:
+                        continue
+                    car_row = car_race.iloc[0]
+                    car_laps = pit_df[pit_df["NUMBER"] == car_number].sort_values("LAP_NUMBER")
+                    
+                    if car_laps.shape[0] < 3:
+                        continue
+
+                    # Extract race position using EXACT column names
+                    position = car_row.get("POSITION", np.nan)
+                    try:
+                        position = int(position) if not pd.isna(position) else np.nan
+                    except Exception:
+                        position = np.nan
+
+                    total_laps = int(car_laps["LAP_NUMBER"].max()) if "LAP_NUMBER" in car_laps.columns else car_laps.shape[0]
+
+                    # Strategy heuristics
+                    needs_strategy_change = 1 if (not pd.isna(position) and position > 10) else 0
+                    is_leading = 1 if (not pd.isna(position) and position <= 3) else 0
+
+                    # Performance metrics
+                    avg_lap_time = float(
+                        pd.to_numeric(car_laps.get("LAP_TIME_SECONDS", pd.Series([])), errors="coerce"
+                    ).mean(skipna=True)) if "LAP_TIME_SECONDS" in car_laps.columns else np.nan
+
+                    tire_degradation = float(
+                        pd.to_numeric(car_laps.get("TIRE_DEGRADATION_RATE", pd.Series([np.nan])), errors="coerce"
+                    ).mean(skipna=True)) if "TIRE_DEGRADATION_RATE" in car_laps.columns else np.nan
+
+                    rows.append({
+                        "NUMBER": car_number,
+                        "POSITION": position,
+                        "TOTAL_LAPS": total_laps,
+                        "AVG_LAP_TIME": avg_lap_time,
+                        "TIRE_DEGRADATION": tire_degradation,
+                        "NEEDS_STRATEGY_CHANGE": needs_strategy_change,
+                        "IS_LEADING": is_leading,
+                        "STRATEGY_RISK": 0.3 if needs_strategy_change else 0.1
+                    })
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"⚠️ Strategy feature engineering failed: {e}")
+
+        return pd.DataFrame(rows)
+
+    # ------------------------------------------------------------
+    # MASTER COMPOSITE FEATURE ENGINEERING - Updated for FirebaseDataLoader
+    # ------------------------------------------------------------
+    @staticmethod
+    def create_composite_features(track_data: Dict[str, Dict[str, pd.DataFrame]]) -> Dict[str, Dict[str, pd.DataFrame]]:
+        """
+        Create composite features for all tracks using EXACT FirebaseDataLoader structure.
+        
+        Args:
+            track_data: Dict[track_name] -> {
+                'pit_data': pd.DataFrame,
+                'race_data': pd.DataFrame, 
+                'weather_data': pd.DataFrame,
+                'telemetry_data': pd.DataFrame
+            }
+            
+        Returns:
+            Enhanced data with additional feature columns
+        """
+        enhanced_data = {}
+
+        for track_name, data_dict in track_data.items():
+            try:
+                pit_data = data_dict.get("pit_data", pd.DataFrame())
+                race_data = data_dict.get("race_data", pd.DataFrame())
+                weather_data = data_dict.get("weather_data", pd.DataFrame())
+                telemetry_data = data_dict.get("telemetry_data", pd.DataFrame())
+
+                if pit_data.empty:
+                    enhanced_data[track_name] = data_dict
+                    continue
+
+                # Apply all feature engineering steps
+                pit_enhanced = FeatureEngineer.engineer_tire_features(pit_data, telemetry_data)
+                pit_enhanced = FeatureEngineer.engineer_fuel_features(pit_enhanced, telemetry_data)
+                pit_enhanced = FeatureEngineer.engineer_track_features(track_name, pit_enhanced)
+                pit_enhanced = FeatureEngineer.engineer_weather_features(weather_data, pit_enhanced)
+
+                strategy_features = FeatureEngineer.engineer_strategy_features(race_data, pit_enhanced)
+
+                enhanced_data[track_name] = {
+                    "pit_data": pit_enhanced,
+                    "race_data": race_data,
+                    "weather_data": weather_data, 
+                    "telemetry_data": telemetry_data,
+                    "strategy_features": strategy_features
+                }
+
+                print(f"✅ Enhanced features for {track_name}: {len(pit_enhanced)} pit records, "
+                      f"{len(strategy_features)} strategy features")
+
+            except Exception as e:
+                print(f"⚠️ Feature creation failed for {track_name}: {e}")
+                enhanced_data[track_name] = data_dict
+
+        return enhanced_data
+
+    # ----------------------
+    # Utility methods - Consistent with DataPreprocessor
+    # ----------------------
+    @staticmethod
+    def _time_to_seconds(time_str: Any) -> float:
+        """
+        Convert time strings to seconds - Consistent with DataPreprocessor implementation.
+        Handles formats like: '1:54.168', '2:13.691'
+        """
+        if pd.isna(time_str) or time_str == 0:
+            return 0.0
+            
+        s = str(time_str).strip()
+        if s == '' or s.upper() in {'-', 'NULL', 'NONE', 'NAN'}:
             return 0.0
 
+        # If already numeric
+        try:
+            return float(s)
+        except ValueError:
+            pass
 
+        # Remove + sign used in gaps
+        s = s.lstrip('+')
 
+        # Handle MM:SS.ms format (most common in your data)
+        parts = s.split(':')
+        try:
+            if len(parts) == 2:
+                # MM:SS.ms
+                minutes = float(parts[0])
+                seconds = float(parts[1])
+                return minutes * 60.0 + seconds
+            elif len(parts) == 3:
+                # HH:MM:SS.ms
+                hours = float(parts[0])
+                minutes = float(parts[1])
+                seconds = float(parts[2])
+                return hours * 3600.0 + minutes * 60.0 + seconds
+            else:
+                # Assume seconds
+                return float(s)
+        except (ValueError, TypeError):
+            return 0.0
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# import pandas as pd
-# import numpy as np
-# from typing import Dict, List
-
-# class FeatureEngineer:
-#     """Engineer advanced features from raw racing data"""
-    
-#     @staticmethod
-#     def engineer_tire_features(lap_data: pd.DataFrame) -> pd.DataFrame:
-#         """Create advanced tire degradation features"""
-#         df = lap_data.copy()
+    @staticmethod
+    def validate_feature_engineering(enhanced_data: Dict[str, Dict[str, pd.DataFrame]]) -> Dict[str, Any]:
+        """
+        Validate that feature engineering produced expected results.
+        """
+        validation_results = {}
         
-#         # Rolling performance metrics
-#         df['ROLLING_5_LAP_AVG'] = df['LAP_TIME_SECONDS'].rolling(window=5, min_periods=1).mean()
-#         df['PERFORMANCE_TREND'] = df['LAP_TIME_SECONDS'].diff().rolling(window=3).mean()
-        
-#         # Sector consistency (tire wear indicator)
-#         df['SECTOR_VARIANCE'] = df[['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']].std(axis=1)
-#         df['SECTOR_BALANCE'] = (df['S1_SECONDS'] - df['S3_SECONDS']).abs()
-        
-#         # Tire age with exponential decay factor
-#         df['TIRE_AGE_EXP'] = np.exp(df['LAP_NUMBER'] * 0.1) - 1
-        
-#         # Performance drop from personal best
-#         df['PERSONAL_BEST'] = df.groupby('NUMBER')['LAP_TIME_SECONDS'].transform('min')
-#         df['DROP_FROM_PB'] = df['LAP_TIME_SECONDS'] - df['PERSONAL_BEST']
-        
-#         # Rolling degradation rate
-#         df['DEGRADATION_RATE'] = df['LAP_TIME_SECONDS'].diff().rolling(window=5).mean()
-        
-#         return df
-    
-#     @staticmethod
-#     def engineer_fuel_features(lap_data: pd.DataFrame) -> pd.DataFrame:
-#         """Create advanced fuel consumption features"""
-#         df = lap_data.copy()
-        
-#         # Fuel load estimation (decreases linearly with laps)
-#         total_laps = df['LAP_NUMBER'].max()
-#         df['ESTIMATED_FUEL_LOAD'] = 1.0 - (df['LAP_NUMBER'] / total_laps)
-        
-#         # Speed efficiency (higher speed = more fuel consumption)
-#         df['SPEED_EFFICIENCY'] = df['KPH'] / df['LAP_TIME_SECONDS']
-        
-#         # Throttle usage approximation
-#         df['THROTTLE_ESTIMATE'] = (df['KPH'] / df['KPH'].max()) * 100
-        
-#         # Fuel burn rate trend
-#         df['FUEL_BURN_TREND'] = df['LAP_TIME_SECONDS'].rolling(window=3).std()
-        
-#         # Lap time improvement (fuel burn effect)
-#         df['LAP_IMPROVEMENT'] = df['LAP_TIME_SECONDS'].diff().rolling(window=5).mean() * -1
-        
-#         return df
-    
-#     @staticmethod
-#     def engineer_strategy_features(race_data: pd.DataFrame, lap_data: pd.DataFrame) -> pd.DataFrame:
-#         """Create race strategy features"""
-#         strategy_features = []
-        
-#         for car_number in race_data['NUMBER'].unique():
-#             car_race = race_data[race_data['NUMBER'] == car_number].iloc[0]
-#             car_laps = lap_data[lap_data['NUMBER'] == car_number]
+        for track_name, data_dict in enhanced_data.items():
+            track_validation = {}
             
-#             if len(car_laps) < 5:
-#                 continue
+            for data_type, df in data_dict.items():
+                if df.empty:
+                    track_validation[data_type] = {'status': 'empty', 'rows': 0, 'columns': 0}
+                else:
+                    # Check for engineered features
+                    engineered_features = []
+                    if data_type == 'pit_data':
+                        engineered_features = ['TIRE_DEGRADATION_RATE', 'FUEL_EFFICIENCY_EST', 'TRACK_WEAR_FACTOR']
+                    elif data_type == 'strategy_features':
+                        engineered_features = ['NEEDS_STRATEGY_CHANGE', 'STRATEGY_RISK']
+                    
+                    present_features = [feat for feat in engineered_features if feat in df.columns]
+                    
+                    track_validation[data_type] = {
+                        'status': 'enhanced' if present_features else 'basic',
+                        'rows': len(df),
+                        'columns': len(df.columns),
+                        'engineered_features': present_features,
+                        'engineered_count': len(present_features)
+                    }
             
-#             # Position-based features
-#             position = car_race.get('POSITION', 1)
-#             gap_to_leader = FeatureEngineer._parse_gap(car_race.get('GAP_FIRST', '0'))
-#             gap_to_next = FeatureEngineer._parse_gap(car_race.get('GAP_PREVIOUS', '0'))
+            validation_results[track_name] = track_validation
+        
+        # Print validation summary
+        print("\n" + "="*60)
+        print("FEATURE ENGINEERING VALIDATION SUMMARY")
+        print("="*60)
+        
+        total_enhanced = 0
+        for track_name, track_validation in validation_results.items():
+            print(f"\n🏁 {track_name.upper()}:")
+            for data_type, validation in track_validation.items():
+                status_icon = "✅" if validation['status'] == 'enhanced' else "📝"
+                print(f"  {status_icon} {data_type}: {validation['rows']} rows, "
+                      f"{validation['engineered_count']} engineered features")
+                if validation['engineered_features']:
+                    print(f"     Features: {validation['engineered_features']}")
             
-#             # Performance consistency
-#             lap_std = car_laps['LAP_TIME_SECONDS'].std()
-#             best_lap_num = car_race.get('BEST_LAP_NUM', car_laps['LAP_NUMBER'].iloc[car_laps['LAP_TIME_SECONDS'].argmin()])
-            
-#             # Race phase analysis
-#             total_laps = car_race.get('LAPS', len(car_laps))
-#             race_progress = best_lap_num / total_laps
-            
-#             # Competitor pressure
-#             position_pressure = 1.0 / position if position > 0 else 1.0
-            
-#             strategy_features.append(pd.DataFrame([{
-#                 'car_number': car_number,
-#                 'position': position,
-#                 'gap_to_leader': gap_to_leader,
-#                 'gap_to_next': gap_to_next,
-#                 'performance_consistency': lap_std,
-#                 'optimal_lap_timing': best_lap_num,
-#                 'race_progress': race_progress,
-#                 'position_pressure': position_pressure,
-#                 'total_laps': total_laps,
-#                 'has_winning_pace': 1 if position <= 3 else 0
-#             }]))
+            if any(v['status'] == 'enhanced' for v in track_validation.values()):
+                total_enhanced += 1
         
-#         if strategy_features:
-#             return pd.concat(strategy_features, ignore_index=True)
-#         return pd.DataFrame()
-    
-#     @staticmethod
-#     def engineer_track_features(track_name: str, lap_data: pd.DataFrame) -> pd.DataFrame:
-#         """Create track-specific features"""
-#         df = lap_data.copy()
+        print(f"\n📊 Overall: {total_enhanced}/{len(validation_results)} tracks successfully enhanced")
         
-#         # Track characteristics based on sector times
-#         sector_ratios = df[['S1_SECONDS', 'S2_SECONDS', 'S3_SECONDS']].mean()
-#         total_sector_time = sector_ratios.sum()
-        
-#         df['S1_RATIO'] = sector_ratios['S1_SECONDS'] / total_sector_time
-#         df['S2_RATIO'] = sector_ratios['S2_SECONDS'] / total_sector_time
-#         df['S3_RATIO'] = sector_ratios['S3_SECONDS'] / total_sector_time
-        
-#         # Track wear classification
-#         track_wear_factors = {
-#             'barber-motorsports-park': 'high',
-#             'circuit-of-the-americas': 'medium',
-#             'indianapolis': 'low', 
-#             'road-america': 'medium',
-#             'sebring': 'high',
-#             'sonoma': 'medium',
-#             'virginia-international-raceway': 'medium'
-#         }
-        
-#         wear_level = track_wear_factors.get(track_name, 'medium')
-#         df['TRACK_WEAR_FACTOR'] = 0.9 if wear_level == 'high' else 0.7 if wear_level == 'medium' else 0.5
-        
-#         # Overtaking difficulty (based on top speed variance)
-#         overtaking_difficulty = df['TOP_SPEED'].std() / df['TOP_SPEED'].mean() if 'TOP_SPEED' in df.columns else 0.1
-#         df['OVERTAKING_DIFFICULTY'] = overtaking_difficulty
-        
-#         return df
-    
-#     @staticmethod
-#     def engineer_weather_features(weather_data: pd.DataFrame, lap_data: pd.DataFrame) -> pd.DataFrame:
-#         """Create weather impact features"""
-#         if weather_data.empty:
-#             return lap_data.copy()
-        
-#         df = lap_data.copy()
-#         weather_avg = weather_data.mean(numeric_only=True)
-        
-#         # Temperature impact
-#         df['TEMP_IMPACT'] = (weather_avg.get('AIR_TEMP', 25) - 25) * 0.1  # 0.1s per degree
-        
-#         # Humidity impact  
-#         df['HUMIDITY_IMPACT'] = (weather_avg.get('HUMIDITY', 50) - 50) * 0.05  # 0.05s per 10% humidity
-        
-#         # Wind impact (simplified)
-#         wind_speed = weather_avg.get('WIND_SPEED', 0)
-#         df['WIND_IMPACT'] = wind_speed * 0.02  # 0.02s per km/h
-        
-#         # Rain impact
-#         rain = weather_avg.get('RAIN', 0)
-#         df['RAIN_IMPACT'] = rain * 0.5  # 0.5s per mm of rain
-        
-#         # Combined weather effect
-#         df['TOTAL_WEATHER_IMPACT'] = (df['TEMP_IMPACT'] + df['HUMIDITY_IMPACT'] + 
-#                                     df['WIND_IMPACT'] + df['RAIN_IMPACT'])
-        
-#         return df
-    
-#     @staticmethod
-#     def create_composite_features(processed_data: Dict) -> Dict:
-#         """Create all composite features for model training"""
-#         enhanced_data = {}
-        
-#         for track_name, data in processed_data.items():
-#             lap_data = data['lap_data']
-#             race_data = data['race_data']
-#             weather_data = data['weather_data']
-            
-#             # Apply all feature engineering steps
-#             lap_data = FeatureEngineer.engineer_tire_features(lap_data)
-#             lap_data = FeatureEngineer.engineer_fuel_features(lap_data)
-#             lap_data = FeatureEngineer.engineer_track_features(track_name, lap_data)
-#             lap_data = FeatureEngineer.engineer_weather_features(weather_data, lap_data)
-            
-#             strategy_features = FeatureEngineer.engineer_strategy_features(race_data, lap_data)
-            
-#             enhanced_data[track_name] = {
-#                 'lap_data': lap_data,
-#                 'race_data': race_data,
-#                 'weather_data': weather_data,
-#                 'strategy_features': strategy_features
-#             }
-        
-#         return enhanced_data
-    
-#     @staticmethod
-#     def _parse_gap(gap_str: str) -> float:
-#         """Parse gap string to seconds"""
-#         if pd.isna(gap_str) or gap_str in ['-', '']:
-#             return 0
-#         try:
-#             gap_str = str(gap_str).replace('+', '').strip()
-#             return float(gap_str)
-#         except:
-#             return 0
+        return validation_results
