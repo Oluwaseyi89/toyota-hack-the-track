@@ -15,6 +15,9 @@ db.sqlite3-journal
 media/
 uploads/
 
+#Model Files
+ml_models/
+
 # Static files (collected)
 staticfiles/
 collected_static/

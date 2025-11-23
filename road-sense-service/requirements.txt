@@ -1,12 +1,15 @@
+setuptools
 python-dotenv
 celery
 redis
-Django
+Django==4.2.7
 django-celery-results
 pydantic-settings
 pydantic
-scikit-learn
-numpy
+# scikit-learn
+scikit-learn==1.2.2
+# scikit-learn==1.3.2
+numpy==1.26.0
 joblib
 django-cors-headers
 channels 
@@ -15,6 +18,10 @@ daphne
 djangorestframework
 djangorestframework-simplejwt
 python-dotenv
+drf-yasg
+django-filter
+whitenoise
+psycopg2-binary
 
 
 

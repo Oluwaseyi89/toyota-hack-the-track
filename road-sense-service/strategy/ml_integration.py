@@ -17,7 +17,7 @@ class StrategyMLModels:
             models_dir = settings.ML_MODELS_DIR
             
             # Load tire degradation model
-            tire_model_path = os.path.join(models_dir, 'tire_model.pkl')
+            tire_model_path = os.path.join(models_dir, 'tire_degradation_model.pkl')
             if os.path.exists(tire_model_path):
                 self.tire_model = joblib.load(tire_model_path)
             
@@ -90,6 +90,6 @@ class StrategyMLModels:
             'predicted_laps_remaining': 15
         }
     
-    def _fallback_pit_predategy(self, race_data):
+    def _fallback_pit_strategy_prediction(self, race_data):
         """Fallback pit strategy prediction"""
         return 'MIDDLE', 0.7

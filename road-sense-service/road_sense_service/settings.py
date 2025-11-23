@@ -24,6 +24,9 @@ try:
 except ImportError:
     pass
 
+# Start Websocket Server
+# daphne -b 0.0.0.0 -p 8000 road_sense_service.asgi:application
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -34,7 +37,15 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# ALLOWED_HOSTS = []
+
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1', 
+    '0.0.0.0',
+    '127.0.0.1:3000',  # Your Next.js frontend
+    'localhost:3000',
+]
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
@@ -42,8 +53,48 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+CSRF_COOKIE_SECURE = False  # Must match SESSION_COOKIE_SECURE
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = 'Lax'
+# CSRF_COOKIE_SAMESITE = 'None'
+
+# CSRF_USE_SESSIONS = True
+CSRF_COOKIE_NAME = 'csrftoken'
+CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'
+# CSRF_USE_SESSIONS = False
+
+# CSRF_COOKIE_SAMESITE = "None"
+# CSRF_COOKIE_SECURE = False
+# CSRF_COOKIE_HTTPONLY = False
+
+
+
+CORS_EXPOSE_HEADERS = ['Set-Cookie']
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+
+
+
+
+
+
 
 
 # Application definition
@@ -64,6 +115,7 @@ INSTALLED_APPS = [
     'strategy.apps.StrategyConfig',
     'analytics.apps.AnalyticsConfig',
     'alerts.apps.AlertsConfig',
+    'accounts.apps.AccountsConfig',
 
 
 ]
@@ -81,13 +133,17 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'road_sense_service.urls'
 
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            os.path.join(BASE_DIR, 'templates'),  # ← Add this line
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -106,23 +162,64 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    #  ADD THIS FOR DEVELOPMENT:
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',  # Temporary for debugging
+    ],
 }
+
+
+# REST_FRAMEWORK = {
+#     'DEFAULT_AUTHENTICATION_CLASSES': [
+#         'rest_framework.authentication.SessionAuthentication',
+#     ],
+#     'DEFAULT_PERMISSION_CLASSES': [
+#         'rest_framework.permissions.IsAuthenticated',
+#     ],
+#     'DEFAULT_RENDERER_CLASSES': [
+#         'rest_framework.renderers.JSONRenderer',
+#     ],
+#     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+#     'PAGE_SIZE': 20,
+    
+#     # ADD THIS FOR DEVELOPMENT:
+#     'DEFAULT_PERMISSION_CLASSES': [
+#         'rest_framework.permissions.AllowAny',  # Temporary for debugging
+#     ],
+# }
+
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 3600  # 1 hour
+# SESSION_COOKIE_HTTPONLY = True
+# SESSION_COOKIE_SECURE = not DEBUG  # HTTPS only in production
+# Session settings
+SESSION_COOKIE_SAMESITE = 'Lax'
+# SESSION_COOKIE_DOMAIN = None  
+# SESSION_COOKIE_SAMESITE = 'None'
+# SESSION_COOKIE_SAMESITE = 'Lax'
+
+
+# SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = False   # Local dev (HTTP)
+SESSION_COOKIE_HTTPONLY = False
+
+
+
+
+# SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 
 WSGI_APPLICATION = 'road_sense_service.wsgi.application'
 
 ASGI_APPLICATION = 'road_sense_service.asgi.application'
-
-
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
 
 
 DATABASES = {
@@ -166,6 +263,13 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+AUTH_USER_MODEL = 'accounts.User'
+
+LOGIN_URL = '/api/accounts/auth/login/'
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/'
+
+
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
@@ -182,8 +286,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 # Authentication
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/'
+# LOGIN_REDIRECT_URL = '/'
+# LOGOUT_REDIRECT_URL = '/'
 
 # ML Models configuration
 ML_MODELS_DIR = os.path.join(BASE_DIR, 'ml_models')
