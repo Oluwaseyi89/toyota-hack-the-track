@@ -35,39 +35,88 @@ except ImportError:
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# DEBUG = True
+
+# Determine environment
+IS_PRODUCTION = True #os.environ.get('PRODUCTION', 'false').lower() == 'true'
+
+# Security settings for production
+if IS_PRODUCTION:
+    # DEBUG = False
+    # ALLOWED_HOSTS = [
+    #     "neuraplay-service-930102180917.us-central1.run.app",
+    #     "localhost",
+    #     "127.0.0.1",
+    # ]
+    
+    # Use environment variable for Redis in production
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+else:
+    DEBUG = True
+    # ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+    REDIS_URL = 'redis://localhost:6379/0'
+
 
 # ALLOWED_HOSTS = []
 
+PORT = int(os.environ.get("PORT", 8080))
+
+
 ALLOWED_HOSTS = [
     'localhost',
-    '127.0.0.1', 
-    '0.0.0.0',
-    '127.0.0.1:3000',  # Your Next.js frontend
-    'localhost:3000',
+    '127.0.0.1',
+    'road-sense-app.vercel.app',
+    'road-sense-service-930102180917.us-central1.run.app',
+    '.run.app',
+    '.vercel.app',
+    # '0.0.0.0',
+    # '127.0.0.1:3000',  # Your Next.js frontend
+    # 'localhost:3000',
 ]
 
 # CORS settings
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:3000",
+#     "http://127.0.0.1:3000",
+# ]
+
+# CSRF_USE_SESSIONS = True
+
+# CSRF_COOKIE_HTTPONLY = True
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
+    'http://localhost:3000',
+    'http://localhost:8000',
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    'https://road-sense-app.vercel.app',
+    'https://road-sense-service-930102180917.us-central1.run.app',
+    # 'http://192.168.42.95:3000',
+    # 'http://localhost:8080'
 ]
+
 
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    'https://road-sense-app.vercel.app',
+    'https://road-sense-service-930102180917.us-central1.run.app',
 ]
 
-CSRF_COOKIE_SECURE = False  # Must match SESSION_COOKIE_SECURE
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SAMESITE = 'Lax'
+# CSRF_COOKIE_SECURE = False  # Must match SESSION_COOKIE_SECURE
+# CSRF_COOKIE_HTTPONLY = False
+# CSRF_COOKIE_HTTPONLY = True
+
+# CSRF_COOKIE_SAMESITE = 'Lax'
 # CSRF_COOKIE_SAMESITE = 'None'
 
 # CSRF_USE_SESSIONS = True
-CSRF_COOKIE_NAME = 'csrftoken'
-CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'
+# CSRF_COOKIE_NAME = 'csrftoken'
+# CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'
 # CSRF_USE_SESSIONS = False
 
 # CSRF_COOKIE_SAMESITE = "None"
@@ -76,7 +125,7 @@ CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'
 
 
 
-CORS_EXPOSE_HEADERS = ['Set-Cookie']
+# CORS_EXPOSE_HEADERS = ['Set-Cookie']
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -88,6 +137,47 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+
+# # DEVELOPMENT SETTINGS
+# # settings.py - MUST HAVE THESE
+# SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+# SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' for cross-domain
+# SESSION_COOKIE_SECURE = False  # True in production with HTTPS
+# SESSION_COOKIE_HTTPONLY = True
+# SESSION_COOKIE_AGE = 1209600  # 2 weeks in seconds
+# SESSION_COOKIE_NAME = 'sessionid'
+
+
+# # CSRF settings
+# CSRF_COOKIE_SAMESITE = 'Lax'
+# CSRF_COOKIE_SECURE = False  # True in production
+# CSRF_COOKIE_HTTPONLY = False  # Let JavaScript read it
+# CSRF_USE_SESSIONS = False
+# CSRF_COOKIE_NAME = 'csrftoken'
+
+
+
+
+
+
+# PRODUCTION SETTINGS
+# settings.py - PRODUCTION VERSION
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_SAMESITE = 'None'  # 'None' for cross-domain in production
+SESSION_COOKIE_SECURE = True  # True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 1209600  # 2 weeks in seconds
+SESSION_COOKIE_NAME = 'sessionid'
+
+
+# CSRF settings
+CSRF_COOKIE_SAMESITE = 'None'  # 'None' for cross-domain
+CSRF_COOKIE_SECURE = True  # True in production
+CSRF_COOKIE_HTTPONLY = False  # Let JavaScript read it
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_NAME = 'csrftoken'
+
 
 
 
@@ -121,8 +211,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -191,20 +281,19 @@ REST_FRAMEWORK = {
 # }
 
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-SESSION_COOKIE_AGE = 3600  # 1 hour
+# SESSION_COOKIE_AGE = 3600  # 1 hour
 # SESSION_COOKIE_HTTPONLY = True
 # SESSION_COOKIE_SECURE = not DEBUG  # HTTPS only in production
 # Session settings
-SESSION_COOKIE_SAMESITE = 'Lax'
+# SESSION_COOKIE_SAMESITE = 'Lax'
 # SESSION_COOKIE_DOMAIN = None  
 # SESSION_COOKIE_SAMESITE = 'None'
 # SESSION_COOKIE_SAMESITE = 'Lax'
 
 
 # SESSION_COOKIE_SAMESITE = "None"
-SESSION_COOKIE_SECURE = False   # Local dev (HTTP)
-SESSION_COOKIE_HTTPONLY = False
+# SESSION_COOKIE_SECURE = True  # Local dev (HTTP)
+# SESSION_COOKIE_HTTPONLY = False
 
 
 
@@ -222,15 +311,34 @@ WSGI_APPLICATION = 'road_sense_service.wsgi.application'
 ASGI_APPLICATION = 'road_sense_service.asgi.application'
 
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.environ.get('POSTGRES_DB'),           
+#         'USER': os.environ.get('POSTGRES_USER'),        
+#         'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),     
+#         'HOST': os.environ.get('POSTGRES_HOST'),               
+#         'PORT': os.environ.get('POSTGRES_PORT'),              
+#     }
+# }
+
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB'),           
-        'USER': os.environ.get('POSTGRES_USER'),        
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),     
-        'HOST': os.environ.get('POSTGRES_HOST'),               
-        'PORT': os.environ.get('POSTGRES_PORT'),                    
+        'NAME': os.environ.get('SUPABASE_POSTGRES_DB'),           
+        'USER': os.environ.get('SUPABASE_POSTGRES_USER'),        
+        'PASSWORD': os.environ.get('SUPABASE_POSTGRES_PASSWORD'),     
+        'HOST': os.environ.get('SUPABASE_POSTGRES_HOST'),               
+        'PORT': os.environ.get('SUPABASE_POSTGRES_PORT'), 
+        'OPTIONS': {
+            'sslmode': 'require',
+        },                   
     }
+}
+
+DATABASE_SCHEMAS = {
+    'default': 'road_sense_schema'
 }
 
 
@@ -242,6 +350,24 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+# Channel layers for production
+# if IS_PRODUCTION:
+#     CHANNEL_LAYERS = {
+#         "default": {
+#             "BACKEND": "channels_redis.core.RedisChannelLayer",
+#             "CONFIG": {
+#                 "hosts": [REDIS_URL],
+#             },
+#         },
+#     }
+# else:
+#     CHANNEL_LAYERS = {
+#         "default": {
+#             "BACKEND": "channels.layers.InMemoryChannelLayer"
+#         }
+#     }
+
 
 
 # Password validation
@@ -304,5 +430,14 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+# CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+# CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+# Celery Configuration for production
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+

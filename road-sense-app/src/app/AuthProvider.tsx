@@ -1,79 +1,84 @@
-'use client'
-import { createContext, useContext, useEffect, useState } from 'react';
-import { User } from '@/types/user';
+'use client';
 
-// interface User {
-//   id: number
-//   username: string
-//   email: string
-//   firstName: string
-//   lastName: string
-//   role: string
-//   permissions: {
-//     can_access_live_data: boolean
-//     can_modify_strategy: boolean
-//     can_acknowledge_alerts: boolean
-//   }
-// }
+import { createContext, useContext, useEffect } from 'react';
+import { useRootStore } from '@/store';
 
-
-
+/**
+ * This AuthProvider is now mainly for initializing auth state
+ * and providing a compatibility layer for components that still use useAuth()
+ */
 interface AuthContextType {
-  user: User | null
-  isLoading: boolean
-  logout: () => void
+  user: any | null;
+  isLoading: boolean;
+  logout: () => void;
+  isAuthenticated: boolean;
+  permissions: {
+    can_access_live_data: boolean;
+    can_modify_strategy: boolean;
+    can_acknowledge_alerts: boolean;
+  };
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { 
+    user, 
+    isLoading, 
+    isAuthenticated, 
+    permissions, 
+    logout, 
+    getCurrentUser,
+    setLoading 
+  } = useRootStore();
 
   useEffect(() => {
-    checkAuth()
-  }, [])
-
-  const checkAuth = async () => {
-    try {
-      const response = await fetch('/api/accounts')
-      if (response.ok) {
-        const data = await response.json()
-        setUser(data.user)
+    const initializeAuth = async () => {
+      try {
+        setLoading(true);
+        await getCurrentUser();
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Auth check failed:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    };
 
-  const logout = async () => {
-    try {
-      await fetch('/api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'logout' }),
-      })
-    } catch (error) {
-      console.error('Logout failed:', error)
-    } finally {
-      setUser(null)
-      window.location.href = '/'
-    }
-  }
+    initializeAuth();
+  }, [getCurrentUser, setLoading]);
+
+  const authContextValue: AuthContextType = {
+    user,
+    isLoading,
+    logout,
+    isAuthenticated,
+    permissions,
+  };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, logout }}>
+    <AuthContext.Provider value={authContextValue}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext)
+  const context = useContext(AuthContext);
+  
+  // Fallback to direct store access if context is not available
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const { user, isLoading, isAuthenticated, permissions, logout } = useRootStore();
+    
+    return {
+      user,
+      isLoading,
+      logout,
+      isAuthenticated,
+      permissions,
+    };
   }
-  return context
+  
+  return context;
 }
+

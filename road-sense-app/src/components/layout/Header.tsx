@@ -39,7 +39,7 @@ export function Header() {
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to logout?')) {
-      await logout()
+      logout()
     }
   }
 
@@ -73,7 +73,7 @@ export function Header() {
               <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded-full font-medium">
                 {getRoleDisplay(user.role)}
               </span>
-              {user.permissions.can_modify_strategy && (
+              {user.permissions?.can_modify_strategy && (
                 <span className="px-2 py-1 bg-green-600 text-white text-xs rounded-full font-medium">
                   Strategy Access
                 </span>
@@ -88,7 +88,7 @@ export function Header() {
             Session: <span className="font-semibold text-white">Practice 1</span>
           </div>
           <div className="text-sm text-gray-300">
-            Track: <span className="font-semibold text-white">Circuit de Barcelona-Catalunya</span>
+            Track: <span className="font-semibold text-white">Circuit of America</span>
           </div>
         </div>
 
@@ -141,7 +141,7 @@ export function Header() {
             Session: <span className="font-semibold text-white">Practice 1</span>
           </div>
           <div className="text-gray-300">
-            Track: <span className="font-semibold text-white">Barcelona</span>
+            Track: <span className="font-semibold text-white">Road America</span>
           </div>
         </div>
       </div>

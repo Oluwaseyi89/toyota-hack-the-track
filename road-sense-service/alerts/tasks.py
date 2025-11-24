@@ -5,6 +5,7 @@ from telemetry.models import TelemetryData
 from strategy.ml_integration import StrategyMLModels
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from datetime import timedelta
 
 @shared_task
 def check_alert_conditions():

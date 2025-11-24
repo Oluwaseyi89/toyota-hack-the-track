@@ -42,7 +42,7 @@
 
 
 
-
+const WEBSOCKET_BASE_URL: string = process.env.NEXT_PUBLIC_WEBSOCKET_URL! || "ws://localhost:8000/ws";
 
 interface WebSocketMessage {
   type: 'telemetry' | 'weather' | 'alert' | 'tire' | 'strategy'
@@ -56,7 +56,7 @@ class WebSocketService {
   private messageHandlers: ((message: WebSocketMessage) => void)[] = []
   private connectionHandlers: ((connected: boolean) => void)[] = []
 
-  connect(url: string = 'ws://localhost:8000/ws/telemetry/') {
+  connect(url: string = `${WEBSOCKET_BASE_URL}/telemetry/`) {
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {

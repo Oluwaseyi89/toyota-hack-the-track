@@ -4,7 +4,8 @@ interface MetricCardProps {
   title: string
   value: string
   subtitle?: string
-  trend?: 'up' | 'down' | 'neutral'
+  trend?: 'up' | 'down' | 'neutral' | 'positive'
+  size?: 'sm'
 }
 
 export function MetricCard({ title, value, subtitle, trend = 'neutral' }: MetricCardProps) {

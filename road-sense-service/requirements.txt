@@ -22,6 +22,9 @@ drf-yasg
 django-filter
 whitenoise
 psycopg2-binary
+asyncpg
+django-db
+gunicorn
 
 
 

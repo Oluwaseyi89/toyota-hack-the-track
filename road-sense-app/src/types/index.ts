@@ -1,2 +1,6 @@
 export * from './telemetry'
 export * from './strategy'
+export * from './auth'
+export * from './analytics'
+export * from './alerts'
+export * from './store'
