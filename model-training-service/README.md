@@ -1,11 +1,11 @@
-# 🏎️ Toyota GR Cup - AI Racing Strategy Platform
+# 🏎️ Road Sense - Toyota GR Cup - AI Racing Strategy Platform
 
 > **Real-time Analytics & Strategy Engine for Toyota GR Cup Series**  
 > *Hack the Track Hackathon Submission - Unleash the Data. Engineer Victory.*
 
 ## 🎯 Overview
 
-The **Model Training Service** is a comprehensive AI-powered racing analytics platform that processes real Toyota GR racing data to deliver actionable insights for drivers, engineers, and strategists. Our system transforms raw telemetry, pit, race, and weather data into intelligent predictions for tire degradation, fuel consumption, pit strategy, and weather impact.
+The **Road Sense Model Training Service** is a comprehensive AI-powered racing analytics platform that processes real Toyota GR racing data to deliver actionable insights for drivers, engineers, and strategists. Our system transforms raw telemetry, pit, race, and weather data into intelligent predictions for tire degradation, fuel consumption, pit strategy, and weather impact.
 
 **Competition Category**: Real-Time Analytics & Driver Training & Insights
 

@@ -1,4 +1,4 @@
-# Race Analytics Dashboard - Real-time Motorsport Telemetry Platform
+# Road Sense Race Analytics Dashboard - Real-time Motorsport Telemetry Platform
 
 ## 🏎️ Project Overview
 

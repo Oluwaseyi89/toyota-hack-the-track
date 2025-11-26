@@ -8,6 +8,7 @@ import { createTelemetrySlice } from "./slices/telemetry-slice";
 import { createStrategySlice } from "./slices/strategy-slice";
 import { createAnalyticsSlice } from "./slices/analytics-slice";
 import { createAlertsSlice } from "./slices/alerts-slice";
+import { createSettingsSlice } from "./slices/settings-slice"; // Add this import
 
 // Import types
 import type { RootStore } from "@/types/store";
@@ -41,6 +42,9 @@ export const useRootStore = create<RootStore>()(
           
           // Alerts slice
           ...createAlertsSlice(_set, _get, _store),
+          
+          // Settings slice - Add this line
+          ...createSettingsSlice(_set, _get, _store),
         };
       }),
       {
@@ -65,6 +69,10 @@ export const useRootStore = create<RootStore>()(
           
           // Alerts persistence
           alertFilters: state.alertFilters,
+          
+          // Settings persistence - Add this section
+          preferences: state.preferences,
+          system: state.system,
         }),
         // Optional: Add migration if store structure changes
         // version: 1,
@@ -105,6 +113,9 @@ export const useInitializeStore = () => {
     // Alerts actions
     fetchAlerts,
     fetchAlertSummary,
+    
+    // Settings actions - Add this line
+    loadSettings,
   } = useRootStore();
 
   const initializeApp = async () => {
@@ -127,6 +138,9 @@ export const useInitializeStore = () => {
       // Initialize alerts data
       await fetchAlerts();
       await fetchAlertSummary();
+      
+      // Initialize settings - Add this line
+      await loadSettings();
       
       console.log("Toyota GR Racing Store initialized successfully");
     } catch (error) {
@@ -157,6 +171,9 @@ export const useResetStore = () => {
     
     // Alerts actions
     clearAlerts,
+    
+    // Settings actions - Add this section
+    resetToDefaults,
   } = useRootStore();
 
   const resetStore = () => {
@@ -169,6 +186,7 @@ export const useResetStore = () => {
     clearStrategies();
     clearAnalytics();
     clearAlerts();
+    resetToDefaults(); // Add this line
     
     console.log("Toyota GR Racing Store reset successfully");
   };
@@ -186,10 +204,6 @@ export const useAuthStatus = () => {
   return { user, isAuthenticated, loading, permissions };
 };
 
-
-
-// In src/store/use-root-store.ts - update these hooks:
-
 // Hook for real-time telemetry data
 export const useTelemetryData = () => {
   const { 
@@ -199,7 +213,8 @@ export const useTelemetryData = () => {
     weatherData, 
     isWebSocketConnected,
     selectedVehicle,
-    isLoading  // Add this line
+    isLoading,
+    lastUpdate
   } = useRootStore();
   
   return { 
@@ -209,7 +224,8 @@ export const useTelemetryData = () => {
     weatherData, 
     isWebSocketConnected,
     selectedVehicle,
-    isLoading  // Add this line
+    isLoading,
+    lastUpdate
   };
 };
 
@@ -222,7 +238,7 @@ export const useAlertsData = () => {
     alertSummary,
     getCriticalAlerts,
     hasUnacknowledgedCriticalAlerts,
-    isLoading  // Add this line
+    isLoading
   } = useRootStore();
   
   const criticalAlerts = getCriticalAlerts();
@@ -235,22 +251,24 @@ export const useAlertsData = () => {
     alertSummary,
     criticalAlerts,
     hasCriticalAlerts,
-    isLoading  // Add this line
+    isLoading
   };
 };
-
-
-
 
 // Hook for strategy data
 export const useStrategyData = () => {
   const {
     pitStrategies,
     tireStrategies,
+    fuelStrategies,
     currentPrediction,
     selectedPitStrategy,
+    selectedTireStrategy,
     getOptimalPitWindow,
-    getTireHealth
+    getTireHealth,
+    preferredStrategyType,
+    riskTolerance,
+    isLoading: strategyLoading
   } = useRootStore();
   
   const pitWindow = getOptimalPitWindow();
@@ -259,10 +277,15 @@ export const useStrategyData = () => {
   return {
     pitStrategies,
     tireStrategies,
+    fuelStrategies,
     currentPrediction,
     selectedPitStrategy,
+    selectedTireStrategy,
     pitWindow,
-    tireHealth
+    tireHealth,
+    preferredStrategyType,
+    riskTolerance,
+    isLoading: strategyLoading
   };
 };
 
@@ -272,7 +295,13 @@ export const useAnalyticsData = () => {
     performanceAnalyses,
     raceSimulations,
     competitorAnalyses,
+    currentPerformance,
     analyticsSummary,
+    isLoading: analyticsLoading,
+    isSimulating,
+    simulationProgress,
+    selectedTimeRange,
+    analysisDepth,
     getPerformanceTrend,
     getCompetitorThreats,
     getOptimalStrategy
@@ -286,14 +315,35 @@ export const useAnalyticsData = () => {
     performanceAnalyses,
     raceSimulations,
     competitorAnalyses,
+    currentPerformance,
     analyticsSummary,
+    isLoading: analyticsLoading,
+    isSimulating,
+    simulationProgress,
+    selectedTimeRange,
+    analysisDepth,
     performanceTrend,
     competitorThreats,
     optimalStrategy
   };
 };
 
-
+// Hook for settings data - Add this new hook
+export const useSettingsData = () => {
+  const {
+    preferences,
+    system,
+    isLoading: settingsLoading,
+    error: settingsError
+  } = useRootStore();
+  
+  return {
+    preferences,
+    system,
+    isLoading: settingsLoading,
+    error: settingsError
+  };
+};
 
 /**
  * 🔹 Store subscription hooks for real-time updates

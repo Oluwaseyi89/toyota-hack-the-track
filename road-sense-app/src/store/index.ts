@@ -9,7 +9,8 @@ export {
   useAlertsData,
   useWebSocketStatus,
   useCriticalAlerts,
-  useLiveTelemetry 
+  useLiveTelemetry, 
+  useSettingsData
 } from './use-root-store';
 
 // Type exports

@@ -3,7 +3,7 @@ import { TelemetryStore } from './telemetry';
 import { StrategyStore } from './strategy';
 import { AnalyticsStore } from './analytics';
 import { AlertsStore } from './alerts';
-
+import  { SettingsStore } from './settings'
 /**
  * 🔹 RootStore — combined type of all slices
  */
@@ -12,7 +12,9 @@ export type RootStore =
   TelemetryStore & 
   StrategyStore & 
   AnalyticsStore & 
-  AlertsStore;
+  AlertsStore &
+  SettingsStore;
+
 
 /**
  * 🔹 Store initialization options
