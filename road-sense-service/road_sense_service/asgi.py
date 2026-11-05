@@ -1,29 +1,35 @@
 """
 ASGI config for road_sense_service project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+Serves HTTP (Django) and WebSocket (Channels) traffic, e.g.:
+    daphne -b 0.0.0.0 -p $PORT road_sense_service.asgi:application
 """
 
 import os
-import os
+
+from django.conf import settings
 from django.core.asgi import get_asgi_application
-from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
-import telemetry.routing
-
-
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'road_sense_service.settings')
 
-# application = get_asgi_application()
+# Initialise Django before importing anything that touches models/consumers.
+django_asgi_app = get_asgi_application()
+
+from channels.auth import AuthMiddlewareStack  # noqa: E402
+from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+from channels.security.websocket import OriginValidator  # noqa: E402
+
+import telemetry.routing  # noqa: E402
+
 application = ProtocolTypeRouter({
-    "http": get_asgi_application(),
-    "websocket": AuthMiddlewareStack(
-        URLRouter(
-            telemetry.routing.websocket_urlpatterns
-        )
+    "http": django_asgi_app,
+    # OriginValidator stops other sites from opening a socket with the user's
+    # session cookie (cross-site WebSocket hijacking); AuthMiddlewareStack
+    # resolves scope["user"] from that session for the consumer's auth check.
+    "websocket": OriginValidator(
+        AuthMiddlewareStack(
+            URLRouter(telemetry.routing.websocket_urlpatterns)
+        ),
+        settings.WEBSOCKET_ALLOWED_ORIGINS,
     ),
 })
