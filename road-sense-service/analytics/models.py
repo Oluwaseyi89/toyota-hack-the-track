@@ -10,6 +10,10 @@ class PerformanceAnalysis(models.Model):
     weather_impact = models.FloatField()
     predicted_lap_time = models.FloatField()
     actual_lap_time = models.FloatField(null=True, blank=True)
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     analysis_timestamp = models.DateTimeField(auto_now_add=True)
 
 class RaceSimulation(models.Model):
@@ -18,6 +22,10 @@ class RaceSimulation(models.Model):
     results = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
     is_completed = models.BooleanField(default=False)
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
 
 class CompetitorAnalysis(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
@@ -28,4 +36,8 @@ class CompetitorAnalysis(models.Model):
         ('MEDIUM', 'Medium'),
         ('HIGH', 'High')
     ])
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     analysis_timestamp = models.DateTimeField(auto_now_add=True)

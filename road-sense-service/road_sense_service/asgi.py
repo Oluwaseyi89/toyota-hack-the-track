@@ -20,8 +20,11 @@ from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 from channels.security.websocket import OriginValidator  # noqa: E402
 
 import telemetry.routing  # noqa: E402
+from road_sense_service.jobs import BackgroundJobsMiddleware  # noqa: E402
 
-application = ProtocolTypeRouter({
+# BackgroundJobsMiddleware starts the in-process job scheduler (replaces
+# Celery/Redis) on the first connection, inside Daphne's event loop.
+application = BackgroundJobsMiddleware(ProtocolTypeRouter({
     "http": django_asgi_app,
     # OriginValidator stops other sites from opening a socket with the user's
     # session cookie (cross-site WebSocket hijacking); AuthMiddlewareStack
@@ -32,4 +35,4 @@ application = ProtocolTypeRouter({
         ),
         settings.WEBSOCKET_ALLOWED_ORIGINS,
     ),
-})
+}))

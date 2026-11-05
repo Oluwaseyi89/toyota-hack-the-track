@@ -5,12 +5,10 @@ ENV PORT=8080
 
 WORKDIR /app
 
-# Install system dependencies - FIXED VERSION
+# System dependencies (no Redis/netcat needed: jobs run in-process)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     postgresql-client \
-    redis-tools \
-    netcat-openbsd \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

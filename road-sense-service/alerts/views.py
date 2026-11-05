@@ -14,6 +14,7 @@ from .serializers import AlertSerializer, AlertRuleSerializer, AlertSummarySeria
 from telemetry.models import TelemetryData
 from strategy.ml_integration import StrategyMLModels
 from accounts.permissions import CanAcknowledgeAlerts, IsStaffOrReadOnly
+from .services import create_alert_if_new
 
 # Custom pagination for alerts
 class AlertPagination(PageNumberPagination):
@@ -177,20 +178,10 @@ class AlertViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        # Save new alerts and prevent duplicates
-        saved_alerts = []
-        for alert_data in new_alerts:
-            # Check if similar alert already exists
-            existing_alert = Alert.objects.filter(
-                vehicle=alert_data.get('vehicle'),
-                alert_type=alert_data['alert_type'],
-                is_active=True,
-                created_at__gte=timezone.now() - timedelta(minutes=30)  # Last 30 minutes
-            ).first()
-            
-            if not existing_alert:
-                alert = Alert.objects.create(**alert_data)
-                saved_alerts.append(alert)
+        # Save new alerts, skipping duplicates (shared rule with the scheduled job)
+        saved_alerts = [
+            alert for alert in map(create_alert_if_new, new_alerts) if alert
+        ]
         
         # Auto-acknowledge old alerts of the same type for the same vehicle
         self._cleanup_old_alerts(saved_alerts)

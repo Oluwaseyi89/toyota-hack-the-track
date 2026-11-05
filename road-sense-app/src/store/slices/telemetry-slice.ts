@@ -5,6 +5,43 @@ import { getCookie } from '@/lib/get-cookie';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL! || 'http://localhost:8000';
 
+/**
+ * Telemetry socket URL. NEXT_PUBLIC_WEBSOCKET_URL is the backend's /ws base,
+ * e.g. wss://<service>.onrender.com/ws; if unset it is derived from the API URL.
+ * (The socket must go to the backend directly: Vercel does not proxy WebSockets.)
+ */
+function resolveWebSocketUrl(): string {
+  const base =
+    process.env.NEXT_PUBLIC_WEBSOCKET_URL ||
+    `${API_BASE_URL.replace(/^http/, 'ws')}/ws`;
+  return `${base.replace(/\/+$/, '')}/telemetry/`;
+}
+
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const REFRESH_MIN_INTERVAL_MS = 10000;
+
+let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let manualClose = false;
+const lastRefresh: Record<string, number> = {};
+
+/** Run `refresh` at most once per REFRESH_MIN_INTERVAL_MS for a given key. */
+function throttledRefresh(key: string, refresh: () => unknown) {
+  const now = Date.now();
+  if (now - (lastRefresh[key] ?? 0) < REFRESH_MIN_INTERVAL_MS) return;
+  lastRefresh[key] = now;
+  refresh();
+}
+
+/** Actions from other slices of the root store (this slice only types its own). */
+type CrossSliceActions = {
+  fetchComprehensivePrediction?: () => Promise<unknown>;
+  fetchActiveAlerts?: () => Promise<unknown>;
+};
+const rootActions = (get: () => TelemetryStore) => get() as unknown as CrossSliceActions;
+
 
 
 export const initialTelemetryState: TelemetryState = {
@@ -66,19 +103,27 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
   // 🔹 WebSocket Management
   // ------------------------
   connectWebSocket: () => {
-    // Don't connect if already connected or in SSR
-    if (typeof window === 'undefined' || get().isWebSocketConnected) {
+    if (typeof window === 'undefined') return;
+
+    // Skip if a socket is already open or still connecting
+    const existing = get().webSocket;
+    if (
+      get().isWebSocketConnected ||
+      (existing && existing.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
-    try {
-      // Determine WebSocket URL (adjust based on your Django channels setup)
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${window.location.host}/ws/telemetry/`;
-      
-      const websocket = new WebSocket(wsUrl);
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    manualClose = false;
 
-      // Define message handler first
+    try {
+      const websocket = new WebSocket(resolveWebSocketUrl());
+      set({ webSocket: websocket });
+
       const handleWebSocketMessage = (message: WebSocketMessage) => {
         switch (message.type) {
           case 'connection_established':
@@ -99,7 +144,6 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
 
           case 'current_telemetry':
             if (message.data) {
-              // Handle initial telemetry data
               get().setTelemetryData(message.data);
             }
             break;
@@ -114,8 +158,17 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
             break;
 
           case 'tire':
-            // Handle tire-specific updates
-            console.log('Tire update received:', message.data);
+            // Tire readings are only used for alerts server-side for now
+            break;
+
+          case 'strategy':
+            // Pit/tire/fuel strategy changed: refresh the prediction (rate-limited,
+            // since every car's strategy is broadcast on each update cycle)
+            throttledRefresh('strategy', () => rootActions(get).fetchComprehensivePrediction?.());
+            break;
+
+          case 'alert':
+            throttledRefresh('alert', () => rootActions(get).fetchActiveAlerts?.());
             break;
 
           default:
@@ -125,21 +178,15 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
 
       websocket.onopen = () => {
         console.log('WebSocket connected to telemetry stream');
-        set({ 
-          isWebSocketConnected: true, 
+        reconnectAttempts = 0;
+        set({
+          isWebSocketConnected: true,
           webSocketError: null,
-          webSocket: websocket 
+          webSocket: websocket
         });
 
-        // Subscribe to telemetry updates
-        get().sendWebSocketMessage({
-          type: 'subscribe_telemetry'
-        });
-
-        // Request current data
-        get().sendWebSocketMessage({
-          type: 'request_current_data'
-        });
+        get().sendWebSocketMessage({ type: 'subscribe_telemetry' });
+        get().sendWebSocketMessage({ type: 'request_current_data' });
       };
 
       websocket.onmessage = (event) => {
@@ -153,27 +200,29 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
 
       websocket.onclose = (event) => {
         console.log('WebSocket disconnected:', event.code, event.reason);
-        set({ 
-          isWebSocketConnected: false, 
-          webSocket: null 
-        });
+        set({ isWebSocketConnected: false, webSocket: null });
 
-        // Attempt reconnection after delay
-        if (event.code !== 1000) { // Don't reconnect if closed normally
-          setTimeout(() => {
-            if (!get().isWebSocketConnected) {
-              get().connectWebSocket();
-            }
-          }, 5000);
+        if (manualClose || event.code === 1000) return;
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          set({ webSocketError: 'Live connection lost. Refresh the page to retry.' });
+          return;
         }
+
+        // Exponential backoff with jitter: ~1s, 2s, 4s ... capped at 30s
+        const delay =
+          Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts) +
+          Math.random() * 500;
+        reconnectAttempts += 1;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          get().connectWebSocket();
+        }, delay);
       };
 
       websocket.onerror = (error) => {
         console.error('WebSocket error:', error);
-        set({ 
-          webSocketError: 'WebSocket connection failed',
-          isWebSocketConnected: false 
-        });
+        set({ webSocketError: 'WebSocket connection failed' });
       };
 
     } catch (error) {
@@ -183,6 +232,12 @@ export const createTelemetrySlice: StateCreator<TelemetryStore> = (set, get) => 
   },
 
   disconnectWebSocket: () => {
+    manualClose = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnectAttempts = 0;
     const { webSocket } = get();
     if (webSocket) {
       webSocket.close(1000, 'User initiated disconnect');

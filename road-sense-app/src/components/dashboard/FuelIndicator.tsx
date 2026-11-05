@@ -2,6 +2,8 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useStrategyData } from '@/store';
+import { SimulatedBadge } from '@/components/ui/simulated-badge';
+import { FUEL_TANK_CAPACITY_LITERS } from '@/lib/constants';
 
 interface FuelIndicatorProps {
   strategies?: any; // FuelStrategy type
@@ -40,11 +42,11 @@ export default function FuelIndicator({ strategies }: FuelIndicatorProps) {
     current_fuel,
     predicted_laps_remaining,
     consumption_rate,
-    need_to_conserve
+    need_to_conserve,
+    is_simulated
   } = fuelStrategy;
 
-  // Assuming 100L capacity for percentage calculation
-  const fuelPercentage = (current_fuel / 100) * 100;
+  const fuelPercentage = Math.min(100, (current_fuel / FUEL_TANK_CAPACITY_LITERS) * 100);
 
   const getFuelColor = (percentage: number) => {
     if (percentage > 40) return 'bg-green-500';
@@ -80,8 +82,9 @@ export default function FuelIndicator({ strategies }: FuelIndicatorProps) {
   return (
     <Card className="border-gray-200 shadow-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold text-gray-900">
+        <CardTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           Fuel Strategy
+          <SimulatedBadge show={is_simulated} />
         </CardTitle>
       </CardHeader>
       <CardContent>

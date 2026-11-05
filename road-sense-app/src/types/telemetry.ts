@@ -57,12 +57,16 @@ export interface LiveTelemetry {
   speed: number;
   position: number;
   gap_to_leader: number;
+  is_pit_lap?: boolean;
+  is_simulated?: boolean;
   timestamp: string;
 }
 
 
 export interface WebSocketMessage {
-  type: 'telemetry' | 'weather' | 'tire' | 'alert' | 'current_telemetry' | 'current_data' | 'connection_established';
+  type: 'telemetry' | 'weather' | 'tire' | 'alert' | 'strategy' | 'current_telemetry' | 'current_data' | 'connection_established';
+  /** For type 'strategy': which strategy changed */
+  kind?: 'pit' | 'tire' | 'fuel';
   data?: any;
   telemetry?: any;
   weather?: any;

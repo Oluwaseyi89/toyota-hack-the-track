@@ -15,6 +15,10 @@ class PitStrategy(models.Model):
     confidence = models.FloatField()
     strategy_type = models.CharField(max_length=20, choices=STRATEGY_TYPES)
     reasoning = models.TextField(blank=True)
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 
@@ -24,6 +28,10 @@ class TireStrategy(models.Model):
     degradation_rate = models.FloatField()
     optimal_change_lap = models.IntegerField()
     confidence = models.FloatField()
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
 class FuelStrategy(models.Model):
@@ -32,4 +40,8 @@ class FuelStrategy(models.Model):
     predicted_laps_remaining = models.IntegerField()
     consumption_rate = models.FloatField()
     need_to_conserve = models.BooleanField(default=False)
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     created_at = models.DateTimeField(auto_now_add=True)

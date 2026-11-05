@@ -1,5 +1,4 @@
 from django.db import models
-from django.contrib.auth.models import User
 
 class Vehicle(models.Model):
     number = models.IntegerField(unique=True)
@@ -24,6 +23,11 @@ class TelemetryData(models.Model):
     brake = models.FloatField(help_text="Brake percentage")
     position = models.IntegerField()
     gap_to_leader = models.FloatField(help_text="Gap in seconds")
+    is_pit_lap = models.BooleanField(default=False, help_text="Lap on which the car stopped in the pits")
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     timestamp = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -51,4 +55,8 @@ class WeatherData(models.Model):
     wind_speed = models.FloatField()
     wind_direction = models.FloatField()
     rainfall = models.FloatField(default=0.0)
+    is_simulated = models.BooleanField(
+        default=False,
+        help_text="True when produced by the simulator or by heuristics/assumptions rather than measured data or a trained model",
+    )
     timestamp = models.DateTimeField(auto_now_add=True)

@@ -11,6 +11,7 @@ import {
 import RealTimeMetrics from '@/components/dashboard/RealTimeMetrics';
 import TireWearGauge from '@/components/dashboard/TireWearGauge';
 import FuelIndicator from '@/components/dashboard/FuelIndicator';
+import { SimulatedBadge } from '@/components/ui/simulated-badge';
 import PaceChart from '@/components/dashboard/PaceChart';
 import StrategyTimeline from '@/components/dashboard/StrategyTimeline';
 import AlertsPanel from '@/components/dashboard/AlertsPanel';
@@ -219,8 +220,9 @@ export default function DashboardView() {
           </div>
 
           <div className="bg-gray-800 rounded-lg shadow p-6 border border-gray-700">
-            <h3 className="font-semibold text-white mb-4">
+            <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
               Strategy Recommendations
+              <SimulatedBadge show={currentPrediction?.pit_strategy?.is_simulated} />
             </h3>
 
             {currentPrediction?.pit_strategy ? (

@@ -5,7 +5,14 @@ from telemetry.models import TelemetryData, Vehicle, TireTelemetry, WeatherData
 
 class TelemetryProcessor:
     def __init__(self):
-        self.vehicles = self._initialize_vehicles()
+        self._vehicles = None
+
+    @property
+    def vehicles(self):
+        """Demo vehicles, created on first use only (not on every instantiation)."""
+        if self._vehicles is None:
+            self._vehicles = self._initialize_vehicles()
+        return self._vehicles
     
     def _initialize_vehicles(self):
         """Initialize or get demo vehicles"""
@@ -44,6 +51,7 @@ class TelemetryProcessor:
                 brake=random.uniform(0, 50),
                 position=vehicle.number,
                 gap_to_leader=random.uniform(0, 30),
+                is_simulated=True,
                 timestamp=timezone.now()
             )
             
@@ -67,14 +75,17 @@ class TelemetryProcessor:
         return simulated_data
     
     def get_latest_telemetry(self):
-        """Get latest telemetry data for WebSocket"""
-        recent_time = timezone.now() - timedelta(seconds=5)
-        recent_telemetry = TelemetryData.objects.filter(
-            timestamp__gte=recent_time
-        ).select_related('vehicle', 'tiretelemetry')[:20]  # Limit to 20 vehicles
-        
+        """
+        Latest lap of every car seen within TELEMETRY_LIVE_WINDOW_SECONDS,
+        ordered by position (used for the WebSocket initial snapshot).
+        """
+        from django.conf import settings
+        from telemetry.metrics import latest_per_vehicle
+
+        latest = latest_per_vehicle(settings.TELEMETRY_LIVE_WINDOW_SECONDS)
+
         telemetry_data = []
-        for telemetry in recent_telemetry:
+        for telemetry in latest:
             telemetry_data.append({
                 'vehicle_id': telemetry.vehicle.vehicle_id,
                 'lap_number': telemetry.lap_number,
@@ -82,6 +93,8 @@ class TelemetryProcessor:
                 'speed': telemetry.speed,
                 'position': telemetry.position,
                 'gap_to_leader': telemetry.gap_to_leader,
+                'is_pit_lap': telemetry.is_pit_lap,
+                'is_simulated': telemetry.is_simulated,
                 'timestamp': telemetry.timestamp.isoformat()
             })
         
@@ -132,5 +145,6 @@ class WeatherProcessor:
             wind_speed=random.uniform(0, 15),
             wind_direction=random.uniform(0, 360),
             rainfall=random.uniform(0, 5),
+            is_simulated=True,
             timestamp=timezone.now()
         )
