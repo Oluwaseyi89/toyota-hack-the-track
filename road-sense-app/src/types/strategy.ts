@@ -7,6 +7,8 @@ export interface PitStrategy {
   reasoning: string;
   created_at: string;
   is_active: boolean;
+  /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+  is_simulated?: boolean;
 }
 
 export interface TireStrategy {
@@ -17,6 +19,8 @@ export interface TireStrategy {
   optimal_change_lap: number;
   confidence: number;
   created_at: string;
+  /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+  is_simulated?: boolean;
 }
 
 export interface FuelStrategy {
@@ -27,6 +31,8 @@ export interface FuelStrategy {
   consumption_rate: number;
   need_to_conserve: boolean;
   created_at: string;
+  /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+  is_simulated?: boolean;
 }
 
 export interface StrategyPrediction {
