@@ -9,6 +9,8 @@ export interface PerformanceAnalysis {
     predicted_lap_time: number;
     actual_lap_time: number | null;
     analysis_timestamp: string;
+    /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+    is_simulated?: boolean;
   }
   
   export interface RaceSimulation {
@@ -29,6 +31,8 @@ export interface PerformanceAnalysis {
     };
     created_at: string;
     is_completed: boolean;
+    /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+    is_simulated?: boolean;
   }
   
   export interface CompetitorAnalysis {
@@ -43,6 +47,8 @@ export interface PerformanceAnalysis {
     };
     threat_level: 'LOW' | 'MEDIUM' | 'HIGH';
     analysis_timestamp: string;
+    /** True when produced by heuristics/assumptions or simulated data, not a trained model or measurements */
+    is_simulated?: boolean;
   }
   
   export interface AnalyticsSummary {
