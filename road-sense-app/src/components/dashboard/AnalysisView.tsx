@@ -7,6 +7,7 @@ import {
 } from '@/store';
 
 import { useEffect, useRef, useState } from 'react';
+import { SimulatedBadge } from '@/components/ui/simulated-badge';
 
 export default function AnalysisView() {
   const isInitializedRef = useRef(false);
@@ -275,7 +276,10 @@ export default function AnalysisView() {
               {/* Current Performance */}
               {currentPerformance && (
                 <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-                  <h3 className="text-white text-lg font-semibold mb-4">Current Performance</h3>
+                  <h3 className="text-white text-lg font-semibold mb-4 flex items-center gap-2">
+                    Current Performance
+                    <SimulatedBadge show={currentPerformance.is_simulated} />
+                  </h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="text-center p-3 bg-gray-750 rounded-lg">
                       <div className="text-gray-400 text-xs">Lap Time</div>
@@ -474,8 +478,12 @@ export default function AnalysisView() {
                     <div key={simulation.id} className="p-4 rounded-lg border border-gray-600 bg-gray-750">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <div className="text-white font-semibold">
-                            {simulation.parameters.scenario?.replace('_', ' ') || 'Unknown Scenario'}
+                          <div className="text-white font-semibold flex items-center gap-2">
+                            {simulation.parameters.scenario?.replace('_', ' ') ||
+                              (simulation.results.optimal_strategy
+                                ? `Best: ${String(simulation.results.optimal_strategy).toLowerCase()}`
+                                : 'Strategy simulation')}
+                            <SimulatedBadge show={simulation.is_simulated} />
                           </div>
                           <div className="text-gray-400 text-sm">
                             {new Date(simulation.created_at).toLocaleString()}
