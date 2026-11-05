@@ -4,6 +4,16 @@ from channels.db import database_sync_to_async
 
 class TelemetryConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        # The session user is resolved by AuthMiddlewareStack in asgi.py.
+        # Reject the handshake (HTTP 403) for anonymous users or users without
+        # live-data access, before joining any broadcast group.
+        user = self.scope.get("user")
+        if not (user and user.is_authenticated and user.can_access_live_data):
+            self.joined_groups = False
+            await self.close()
+            return
+        self.joined_groups = True
+
         # Add connection to groups for different types of updates
         await self.channel_layer.group_add(
             "telemetry_updates",
@@ -29,6 +39,8 @@ class TelemetryConsumer(AsyncWebsocketConsumer):
         }))
 
     async def disconnect(self, close_code):
+        if not getattr(self, "joined_groups", False):
+            return
         # Remove from all groups
         await self.channel_layer.group_discard(
             "telemetry_updates",

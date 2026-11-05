@@ -17,6 +17,7 @@ channels_redis
 daphne
 djangorestframework
 djangorestframework-simplejwt
+dj-database-url>=2.1
 python-dotenv
 drf-yasg
 django-filter

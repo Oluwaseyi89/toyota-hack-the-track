@@ -13,6 +13,7 @@ from .models import Alert, AlertRule
 from .serializers import AlertSerializer, AlertRuleSerializer, AlertSummarySerializer
 from telemetry.models import TelemetryData
 from strategy.ml_integration import StrategyMLModels
+from accounts.permissions import CanAcknowledgeAlerts, IsStaffOrReadOnly
 
 # Custom pagination for alerts
 class AlertPagination(PageNumberPagination):
@@ -31,6 +32,7 @@ class AlertViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all().order_by('-created_at')
     serializer_class = AlertSerializer
     pagination_class = AlertPagination
+    permission_classes = [CanAcknowledgeAlerts]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['alert_type', 'severity', 'is_active', 'is_acknowledged']
     search_fields = ['title', 'message']
@@ -485,7 +487,8 @@ class AlertRuleViewSet(viewsets.ModelViewSet):
     queryset = AlertRule.objects.filter(is_active=True).order_by('-created_at')
     serializer_class = AlertRuleSerializer
     pagination_class = AlertPagination
-    
+    permission_classes = [IsStaffOrReadOnly]
+
     @action(detail=True, methods=['post'], url_path='test')
     def test_rule(self, request, pk=None):
         """

@@ -8,12 +8,14 @@ from .serializers import (
     PerformanceAnalysisSerializer, RaceSimulationSerializer,
     CompetitorAnalysisSerializer, AnalyticsSummarySerializer
 )
-from telemetry.models import TelemetryData, Vehicle  # ← FIXED IMPORT
-from strategy.ml_integration import StrategyMLModels  # ← FIXED IMPORT
+from telemetry.models import TelemetryData, Vehicle
+from strategy.ml_integration import StrategyMLModels
+from accounts.permissions import CanModifyStrategy
 
 class PerformanceAnalysisViewSet(viewsets.ModelViewSet):
     queryset = PerformanceAnalysis.objects.all().order_by('-analysis_timestamp')
     serializer_class = PerformanceAnalysisSerializer
+    permission_classes = [CanModifyStrategy]
     
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -64,6 +66,7 @@ class PerformanceAnalysisViewSet(viewsets.ModelViewSet):
 class RaceSimulationViewSet(viewsets.ModelViewSet):
     queryset = RaceSimulation.objects.all().order_by('-created_at')
     serializer_class = RaceSimulationSerializer
+    permission_classes = [CanModifyStrategy]
     
     @action(detail=False, methods=['post'])
     def simulate(self, request):

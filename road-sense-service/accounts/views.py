@@ -1,18 +1,16 @@
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
-from django.utils.decorators import method_decorator
 from rest_framework.response import Response
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, update_session_auth_hash
 from django.utils import timezone
 from django.middleware.csrf import get_token
 import logging
 
 from .models import User, UserSession
 from .serializers import (
-    UserLoginSerializer, UserSerializer, 
-    UserSessionSerializer, ChangePasswordSerializer
+    UserLoginSerializer, UserSerializer, AdminUserSerializer,
+    UserRegistrationSerializer, UserSessionSerializer, ChangePasswordSerializer
 )
-from .permissions import IsTeamMember, CanModifyStrategy, CanAcknowledgeAlerts
 
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
@@ -38,49 +36,6 @@ class AuthViewSet(viewsets.ViewSet):
     """
     permission_classes = [permissions.AllowAny]
     
-    # @method_decorator(ensure_csrf_cookie)
-    # @action(detail=False, methods=['post'], url_path='login')
-    # def user_login(self, request):
-    #     """User login with session creation"""
-    #     serializer = UserLoginSerializer(data=request.data)
-        
-    #     if serializer.is_valid():
-    #         user = serializer.validated_data['user']
-            
-    #         # FIX: Ensure session exists before accessing session_key
-    #         if not request.session.session_key:
-    #             request.session.create()
-            
-    #         # FIX: Create user session with proper session key
-    #         session = UserSession.objects.create(
-    #             user=user,
-    #             session_key=request.session.session_key,
-    #             ip_address=self._get_client_ip(request),
-    #             user_agent=request.META.get('HTTP_USER_AGENT', '')
-    #         )
-            
-    #         # Login user (creates Django session)
-    #         login(request, user)
-            
-    #         # Update user activity
-    #         user.update_activity()
-            
-    #         logger.info(f"User {user.username} logged in from {session.ip_address}")
-            
-    #         return Response({
-    #             'message': 'Login successful',
-    #             'user': UserSerializer(user).data,
-    #             'session': UserSessionSerializer(session).data,
-    #             'permissions': {
-    #                 'can_access_live_data': user.can_access_live_data,
-    #                 'can_modify_strategy': user.can_modify_strategy,
-    #                 'can_acknowledge_alerts': user.can_acknowledge_alerts,
-    #             },
-    #             'csrf_token': get_token(request)
-    #         }, status=status.HTTP_200_OK)
-        
-    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     @action(detail=False, methods=['post'], url_path='login')
     def user_login(self, request):
         """User login with session creation"""
@@ -107,8 +62,9 @@ class AuthViewSet(viewsets.ViewSet):
         
         logger.info(f"User {user.username} logged in from {session.ip_address}")
         
-        # Create response with CSRF cookie
-        response = Response({
+        # login() rotates the CSRF token; CsrfViewMiddleware sets the cookie
+        # using the CSRF_COOKIE_* settings, so no manual cookie handling here.
+        return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
             'session': UserSessionSerializer(session).data,
@@ -118,12 +74,7 @@ class AuthViewSet(viewsets.ViewSet):
                 'can_acknowledge_alerts': user.can_acknowledge_alerts,
             }
         }, status=status.HTTP_200_OK)
-        
-        # Ensure CSRF token is set as cookie
-        self._set_csrf_cookie(response, request)
-        
-        return response
-    
+
     @action(detail=False, methods=['post'], url_path='logout')
     def user_logout(self, request):
         """User logout with session cleanup"""
@@ -188,7 +139,9 @@ class AuthViewSet(viewsets.ViewSet):
         if serializer.is_valid():
             request.user.set_password(serializer.validated_data['new_password'])
             request.user.save()
-            
+            # Keep the current session valid after the password hash changes
+            update_session_auth_hash(request, request.user)
+
             logger.info(f"User {request.user.username} changed password")
             
             return Response({
@@ -208,72 +161,47 @@ class AuthViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'], url_path='register')
     def user_register(self, request):
-        """Register a new user"""
-        from .serializers import UserSerializer
-        
-        # Create user with proper password handling
-        user_data = request.data.copy()
-        password = user_data.pop('password', None)
-        
-        serializer = UserSerializer(data=user_data)
-        if serializer.is_valid():
-            user = serializer.save()
-            
-            # Set password properly
-            if password:
-                user.set_password(password)
-                user.save()
-            
-            # Auto-login after registration
-            if not request.session.session_key:
-                request.session.create()
-                
-            login(request, user)
-            
-            # Create user session
-            session = UserSession.objects.create(
-                user=user,
-                session_key=request.session.session_key,
-                ip_address=self._get_client_ip(request),
-                user_agent=request.META.get('HTTP_USER_AGENT', '')
-            )
-            
-            return Response({
-                'message': 'User registered successfully',
-                'user': UserSerializer(user).data,
-                'session': UserSessionSerializer(session).data,
-                'permissions': {
-                    'can_access_live_data': user.can_access_live_data,
-                    'can_modify_strategy': user.can_modify_strategy,
-                    'can_acknowledge_alerts': user.can_acknowledge_alerts,
-                }
-            }, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        """
+        Self-service registration. Role and permission flags are not accepted
+        from the client; new users get the model defaults (VIEWER, live data
+        only) and an admin grants anything further.
+        """
+        serializer = UserRegistrationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def _set_csrf_cookie(self, response, request):
-        """Helper method to set CSRF cookie with proper settings"""
-        csrf_token = get_token(request)
-        
-        response.set_cookie(
-            'csrftoken',
-            csrf_token,
-            max_age=31449600,  # 1 year
-            secure=False,  # True in production
-            samesite='Lax',  # 'None' in production for cross-domain
-            httponly=False,  # JavaScript needs to read this
-            path='/',
+        user = serializer.save()
+
+        # Auto-login after registration (Django creates the session)
+        login(request, user)
+
+        session = UserSession.objects.create(
+            user=user,
+            session_key=request.session.session_key,
+            ip_address=self._get_client_ip(request),
+            user_agent=request.META.get('HTTP_USER_AGENT', '')
         )
-        
-        # Add CORS headers if needed
-        response["Access-Control-Allow-Credentials"] = "true"
+
+        logger.info(f"User {user.username} registered")
+
+        return Response({
+            'message': 'User registered successfully',
+            'user': UserSerializer(user).data,
+            'session': UserSessionSerializer(session).data,
+            'permissions': {
+                'can_access_live_data': user.can_access_live_data,
+                'can_modify_strategy': user.can_modify_strategy,
+                'can_acknowledge_alerts': user.can_acknowledge_alerts,
+            }
+        }, status=status.HTTP_201_CREATED)
+
 
 class UserViewSet(viewsets.ModelViewSet):
     """
     User management (admin only)
     """
     queryset = User.objects.all().order_by('-date_joined')
-    serializer_class = UserSerializer
+    serializer_class = AdminUserSerializer
     permission_classes = [permissions.IsAdminUser]
     
     @action(detail=True, methods=['post'], url_path='deactivate')
