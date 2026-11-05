@@ -8,11 +8,13 @@ from .serializers import (
     FuelStrategySerializer, StrategyPredictionSerializer
 )
 from .ml_integration import StrategyMLModels
-from telemetry.models import TelemetryData, Vehicle  # ← FIXED IMPORT
+from telemetry.models import TelemetryData, Vehicle
+from accounts.permissions import CanModifyStrategy
 
 class PitStrategyViewSet(viewsets.ModelViewSet):
     queryset = PitStrategy.objects.filter(is_active=True).order_by('-created_at')
     serializer_class = PitStrategySerializer
+    permission_classes = [CanModifyStrategy]
     
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -57,6 +59,7 @@ class PitStrategyViewSet(viewsets.ModelViewSet):
 class TireStrategyViewSet(viewsets.ModelViewSet):
     queryset = TireStrategy.objects.all().order_by('-created_at')
     serializer_class = TireStrategySerializer
+    permission_classes = [CanModifyStrategy]
     
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -85,6 +88,8 @@ class TireStrategyViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 class StrategyPredictionViewSet(viewsets.ViewSet):
+    permission_classes = [CanModifyStrategy]
+
     @action(detail=False, methods=['get'])
     def comprehensive(self, request):
         """Get comprehensive strategy prediction - FIXED LOGIC"""
