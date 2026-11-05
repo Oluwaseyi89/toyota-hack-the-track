@@ -8,9 +8,10 @@ from .models import PitStrategy, TireStrategy, FuelStrategy
 @receiver(post_save, sender=PitStrategy)
 def handle_new_pit_strategy(sender, instance, created, **kwargs):
     """
-    Signal handler for new pit strategy recommendations
+    Broadcast pit strategy changes. The active recommendation per car is
+    updated in place (update_or_create), so broadcast on every save.
     """
-    if created and instance.is_active:
+    if instance.is_active:
         transaction.on_commit(lambda: _broadcast_strategy_update(instance))
 
 @receiver(post_save, sender=TireStrategy)
@@ -42,6 +43,7 @@ def _broadcast_strategy_update(strategy):
             'strategy_type': strategy.strategy_type,
             'confidence': strategy.confidence,
             'reasoning': strategy.reasoning,
+            'is_simulated': strategy.is_simulated,
             'timestamp': strategy.created_at.isoformat()
         }
         
@@ -71,6 +73,7 @@ def _broadcast_tire_strategy(strategy):
             'degradation_rate': strategy.degradation_rate,
             'optimal_change_lap': strategy.optimal_change_lap,
             'confidence': strategy.confidence,
+            'is_simulated': strategy.is_simulated,
             'timestamp': strategy.created_at.isoformat()
         }
         
@@ -98,6 +101,7 @@ def _broadcast_fuel_strategy(strategy):
             'predicted_laps_remaining': strategy.predicted_laps_remaining,
             'consumption_rate': strategy.consumption_rate,
             'need_to_conserve': strategy.need_to_conserve,
+            'is_simulated': strategy.is_simulated,
             'timestamp': strategy.created_at.isoformat()
         }
         
