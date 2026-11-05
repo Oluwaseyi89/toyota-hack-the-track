@@ -5,6 +5,10 @@ import os
 
 class StrategyMLModels:
     def __init__(self):
+        # Names of predictions ("tire", "pit") served by heuristics instead of
+        # a trained model since the last clear(); callers use this to flag
+        # results as is_simulated.
+        self.fallback_used = set()
         self.tire_model = None
         self.pit_strategy_model = None
         self.fuel_model = None
@@ -39,27 +43,25 @@ class StrategyMLModels:
         except Exception as e:
             print(f"Error loading ML models: {e}")
     
-    def predict_tire_degradation(self, telemetry_data):
-        """Predict tire degradation using your trained model"""
+    def predict_tire_degradation(self, telemetry_data, race_data=None):
+        """Predict tire degradation; falls back to telemetry-based heuristics."""
         if not self.tire_model:
-            return self._fallback_tire_prediction(telemetry_data)
+            return self._fallback_tire_prediction(telemetry_data, race_data)
         
         try:
-            # Prepare features for your tire model
             features = self._prepare_tire_features(telemetry_data)
             prediction = self.tire_model.predict(features)
             return prediction
         except Exception as e:
             print(f"Tire prediction error: {e}")
-            return self._fallback_tire_prediction(telemetry_data)
+            return self._fallback_tire_prediction(telemetry_data, race_data)
     
     def predict_pit_strategy(self, race_data):
-        """Predict optimal pit strategy using your trained model"""
+        """Predict optimal pit strategy; falls back to telemetry-based heuristics."""
         if not self.pit_strategy_model:
             return self._fallback_pit_prediction(race_data)
         
         try:
-            # Prepare features for your pit strategy model
             features = self._prepare_pit_features(race_data)
             prediction = self.pit_strategy_model.predict(features)
             confidence = self.pit_strategy_model.predict_proba(features)
@@ -80,16 +82,49 @@ class StrategyMLModels:
         features = []
         return np.array(features)
     
-    def _fallback_tire_prediction(self, telemetry_data):
-        """Fallback tire prediction when model is unavailable"""
+    def _fallback_tire_prediction(self, telemetry_data, race_data=None):
+        """
+        Heuristic used until a trained tire model is deployed: degradation is
+        the lap-time trend over the current stint, measured from telemetry.
+        """
+        self.fallback_used.add("tire")
+        if race_data is None:
+            from .services import build_race_data
+            race_data = build_race_data(telemetry_data)
         return {
-            'degradation_s1': 0.05,
-            'degradation_s2': 0.05,
-            'degradation_s3': 0.05,
-            'grip_loss_rate': 0.1,
-            'predicted_laps_remaining': 15
+            "grip_loss_rate": max(0.0, race_data["tire_degradation"]),
+            "predicted_laps_remaining": race_data["tire_laps_remaining"],
+            "confidence": self._heuristic_confidence(race_data),
+            "is_simulated": True,
         }
     
-    def _fallback_pit_strategy_prediction(self, race_data):
-        """Fallback pit strategy prediction"""
-        return 'MIDDLE', 0.7
+    def _fallback_pit_prediction(self, race_data):
+        """
+        Heuristic used until a trained pit model is deployed. Returns
+        (strategy_type, confidence) based on tire/fuel windows and traffic.
+        """
+        self.fallback_used.add("pit")
+        window = min(
+            race_data.get("tire_laps_remaining", 15),
+            race_data.get("fuel_laps_remaining", 15),
+        )
+        gap_ahead = race_data.get("gap_to_car_ahead")
+        degradation = race_data.get("tire_degradation", 0.0)
+
+        if gap_ahead is not None and gap_ahead < 1.5 and window <= 8:
+            strategy = "UNDERCUT"   # close behind: pit first, use fresh tires
+        elif gap_ahead is not None and gap_ahead > 3.0 and degradation < 0.05 and window > 8:
+            strategy = "OVERCUT"    # clear air and tires holding up: stay out
+        elif window <= 3:
+            strategy = "EARLY"
+        elif window <= 10:
+            strategy = "MIDDLE"
+        else:
+            strategy = "LATE"
+        return strategy, self._heuristic_confidence(race_data)
+
+    @staticmethod
+    def _heuristic_confidence(race_data):
+        """Grows with the number of laps measured; capped low for heuristics."""
+        laps = race_data.get("laps_in_sample", 0)
+        return round(min(0.6, 0.3 + 0.03 * laps), 2)
