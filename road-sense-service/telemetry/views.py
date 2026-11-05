@@ -9,17 +9,18 @@ from .serializers import (
     WeatherDataSerializer, LiveTelemetrySerializer
 )
 from utils.data_processors import TelemetryProcessor
-from accounts.permissions import CanAccessLiveData
+from accounts.permissions import CanAccessLiveData, IsStaffOrReadOnly
 
 
 class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
+    permission_classes = [CanAccessLiveData, IsStaffOrReadOnly]
 
 class TelemetryDataViewSet(viewsets.ModelViewSet):
     queryset = TelemetryData.objects.all().order_by('-timestamp')
-    serializer_class = TelemetryDataSerializer  # Add this line
-    permission_classes = [CanAccessLiveData]
+    serializer_class = TelemetryDataSerializer
+    permission_classes = [CanAccessLiveData, IsStaffOrReadOnly]
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -54,6 +55,7 @@ class TelemetryDataViewSet(viewsets.ModelViewSet):
 class WeatherDataViewSet(viewsets.ModelViewSet):
     queryset = WeatherData.objects.all().order_by('-timestamp')
     serializer_class = WeatherDataSerializer
+    permission_classes = [CanAccessLiveData, IsStaffOrReadOnly]
     
     @action(detail=False, methods=['get'])
     def current(self, request):
