@@ -5,6 +5,9 @@ export const TIRE_WEAR_THRESHOLDS = {
   } as const
   
   export const FUEL_CRITICAL_LEVEL = 10 // liters
+
+  // Must match the backend's ASSUME_FUEL_TANK_LITERS (default 50)
+  export const FUEL_TANK_CAPACITY_LITERS = 50
   
   export const WEATHER_IMPACT = {
     low: 0.5,
