@@ -2,8 +2,9 @@
 Django settings for road_sense_service.
 
 Everything environment-specific is read from environment variables so the
-same code runs locally and on Render (web service + Celery worker + beat),
-backed by Supabase Postgres. See .env.example for the full list.
+same code runs locally and on Render as a single web service (Daphne serving
+HTTP + WebSockets and running background jobs in-process), backed by Supabase
+Postgres. No Redis is required. See .env.example for the full list.
 """
 
 import os
@@ -31,6 +32,16 @@ def env_bool(name, default=False):
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name, default):
+    value = os.environ.get(name)
+    return int(value) if value not in (None, "") else default
+
+
+def env_float(name, default):
+    value = os.environ.get(name)
+    return float(value) if value not in (None, "") else default
 
 
 def env_list(name, default=None):
@@ -231,24 +242,70 @@ if DATABASES["default"].get("PORT") in (6543, "6543"):
 
 
 # ---------------------------------------------------------------------------
-# Redis: Channels layer + Celery (Render Key Value)
+# Channels layer & background jobs (in-process, no Redis)
 # ---------------------------------------------------------------------------
-
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+# Periodic jobs run inside the Daphne process (see road_sense_service/jobs.py)
+# and WebSocket broadcasts stay in that same process, so the in-memory channel
+# layer is enough. This REQUIRES running exactly one web instance/process.
 
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [REDIS_URL]},
-    },
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
 }
 
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = "UTC"
+BACKGROUND_JOBS_ENABLED = env_bool("BACKGROUND_JOBS_ENABLED", True)
+
+# Seconds between runs of each job. Override with JOB_INTERVAL_<NAME>.
+BACKGROUND_JOB_INTERVALS = {
+    name: env_int(f"JOB_INTERVAL_{name.upper()}", default)
+    for name, default in {
+        "race_simulation": 30,
+        "weather": 300,
+        "strategy_predictions": 30,
+        "alert_conditions": 45,
+        "performance_analytics": 180,
+        "competitor_analysis": 600,
+        "batch_simulations": 900,
+        "data_retention": 3600,
+    }.items()
+}
+
+
+# ---------------------------------------------------------------------------
+# Race simulation feed & data retention
+# ---------------------------------------------------------------------------
+
+# Generates simulated laps (flagged is_simulated) until a real feed exists.
+RACE_SIMULATION_ENABLED = env_bool("RACE_SIMULATION_ENABLED", True)
+SIMULATION_VEHICLE_COUNT = env_int("SIMULATION_VEHICLE_COUNT", 10)
+SIMULATION_RACE_LAPS = env_int("SIMULATION_RACE_LAPS", 40)
+
+TELEMETRY_LIVE_WINDOW_SECONDS = env_int("TELEMETRY_LIVE_WINDOW_SECONDS", 600)
+TELEMETRY_RETENTION_HOURS = env_int("TELEMETRY_RETENTION_HOURS", 168)
+HISTORY_RETENTION_HOURS = env_int("HISTORY_RETENTION_HOURS", 48)
+ALERT_RETENTION_DAYS = env_int("ALERT_RETENTION_DAYS", 7)
+STALE_ALERT_HOURS = env_int("STALE_ALERT_HOURS", 3)
+ALERT_DEDUP_MINUTES = env_int("ALERT_DEDUP_MINUTES", 30)
+
+
+# ---------------------------------------------------------------------------
+# Race assumptions
+# ---------------------------------------------------------------------------
+# Used where no trained model or measured data exists yet. Anything computed
+# from these is saved with is_simulated=True so the UI can label it.
+
+RACE_ASSUMPTIONS = {
+    "fuel_tank_liters": env_float("ASSUME_FUEL_TANK_LITERS", 50.0),
+    "fuel_per_lap_liters": env_float("ASSUME_FUEL_PER_LAP_LITERS", 2.4),
+    "fuel_time_cost_s_per_liter": env_float("ASSUME_FUEL_TIME_COST_S_PER_LITER", 0.03),
+    "pit_loss_seconds": env_float("ASSUME_PIT_LOSS_SECONDS", 30.0),
+    "tire_drop_off_seconds": env_float("ASSUME_TIRE_DROP_OFF_SECONDS", 1.5),
+    "tire_max_stint_laps": env_int("ASSUME_TIRE_MAX_STINT_LAPS", 25),
+    "min_degradation_s_per_lap": env_float("ASSUME_MIN_DEGRADATION_S_PER_LAP", 0.02),
+    "track_temp_optimal_c": env_float("ASSUME_TRACK_TEMP_OPTIMAL_C", 35.0),
+    "track_temp_cost_s_per_c": env_float("ASSUME_TRACK_TEMP_COST_S_PER_C", 0.02),
+    "rain_cost_s_per_mm": env_float("ASSUME_RAIN_COST_S_PER_MM", 0.8),
+    "track_length_km": env_float("ASSUME_TRACK_LENGTH_KM", 4.0),
+}
 
 
 # ---------------------------------------------------------------------------
