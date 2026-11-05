@@ -1,9 +1,6 @@
 setuptools
 python-dotenv
-celery
-redis
 Django==4.2.7
-django-celery-results
 pydantic-settings
 pydantic
 # scikit-learn
@@ -13,7 +10,6 @@ numpy==1.26.0
 joblib
 django-cors-headers
 channels 
-channels_redis
 daphne
 djangorestframework
 djangorestframework-simplejwt
