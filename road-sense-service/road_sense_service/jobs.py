@@ -42,6 +42,7 @@ def get_jobs():
     from analytics.tasks import (
         generate_performance_analytics, run_batch_simulations, update_competitor_analysis,
     )
+    from strategy.model_registry import refresh_models
     from strategy.tasks import update_strategy_predictions
     from telemetry.tasks import advance_race_simulation, update_weather_data
 
@@ -59,6 +60,7 @@ def get_jobs():
         ("competitor_analysis", update_competitor_analysis),
         ("batch_simulations", run_batch_simulations),
         ("data_retention", _data_retention),
+        ("model_refresh", refresh_models),
     ]
     return [(name, intervals[name], func) for name, func in jobs]
 
