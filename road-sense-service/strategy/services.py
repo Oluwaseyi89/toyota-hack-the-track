@@ -1,15 +1,16 @@
 """
 Strategy generation shared by the scheduled job and the API views.
 
-Race state is derived from stored telemetry (telemetry.metrics). Predictions
-come from the trained models when they are loaded; otherwise StrategyMLModels
+Race state is derived from stored telemetry (telemetry.metrics) and is also
+the input to the trained models' features (strategy.ml_features). Predictions
+come from the trained models when they are served; otherwise StrategyMLModels
 falls back to telemetry-based heuristics and the saved rows are flagged
 is_simulated=True.
 """
 from django.conf import settings
 
 from telemetry import metrics
-from telemetry.models import TelemetryData
+from telemetry.models import TelemetryData, WeatherData
 
 from .models import FuelStrategy, PitStrategy, TireStrategy
 
@@ -44,8 +45,26 @@ def estimate_tire_laps_remaining(degradation, stint):
     return min(by_drop_off, by_stint_cap)
 
 
+def latest_weather():
+    weather = WeatherData.objects.order_by("-timestamp", "-id").first()
+    if weather is None:
+        return {}
+    return {
+        "track_temperature": weather.track_temperature,
+        "air_temperature": weather.air_temperature,
+        "humidity": weather.humidity,
+        "pressure": weather.pressure,
+        "wind_speed": weather.wind_speed,
+        "rainfall": weather.rainfall,
+        "is_simulated": weather.is_simulated,
+    }
+
+
 def build_race_data(telemetry, snapshot=None):
-    """Current race state for one car, computed from its stored laps."""
+    """
+    Current race state for one car, computed from its stored laps. Keys used
+    as model features are mapped in strategy.ml_features.
+    """
     vehicle = telemetry.vehicle
     pit_lap = metrics.last_pit_lap(vehicle, before_lap=telemetry.lap_number)
     stint = telemetry.lap_number - (pit_lap or 0)
@@ -61,18 +80,25 @@ def build_race_data(telemetry, snapshot=None):
     else:
         track_position = "back"
 
+    best = metrics.best_stint_lap_time(vehicle, telemetry.lap_number)
+    lap_seconds = metrics.lap_seconds(telemetry)
+
     return {
         "vehicle_id": vehicle.vehicle_id,
         "current_lap": telemetry.lap_number,
+        "race_progress": min(1.0, telemetry.lap_number / max(1, settings.RACE_TOTAL_LAPS)),
         "position": telemetry.position,
         "gap_to_leader": telemetry.gap_to_leader,
         "gap_to_car_ahead": metrics.gap_to_car_ahead(telemetry, snapshot),
+        "gap_to_car_behind": metrics.gap_to_car_behind(telemetry, snapshot),
         "last_pit_lap": pit_lap,
         "stint_laps": stint,
         "laps_in_sample": len(metrics.clean_laps(stint_history)),
         "tire_degradation": round(degradation, 4),
         "tire_laps_remaining": tire_laps_remaining,
         "average_lap_time": metrics.average_lap_time(stint_history),
+        "delta_to_stint_best": (lap_seconds - best) if best is not None else None,
+        "weather": latest_weather(),
         "track_position": track_position,
         "is_simulated_input": telemetry.is_simulated,
         **fuel,
@@ -92,15 +118,6 @@ def recommended_pit_lap(race_data, strategy_type):
     return race_data["current_lap"] + offsets.get(strategy_type, window)
 
 
-def _confidence_value(confidence):
-    """Normalise model output (probability arrays) or a fallback float."""
-    if hasattr(confidence, "max"):
-        return float(confidence.max())
-    if isinstance(confidence, (list, tuple)):
-        return float(max(confidence))
-    return float(confidence)
-
-
 def generate_vehicle_strategy(telemetry, ml_models, snapshot=None):
     """
     Create/refresh pit, tire and fuel strategies for one car.
@@ -109,36 +126,41 @@ def generate_vehicle_strategy(telemetry, ml_models, snapshot=None):
     vehicle = telemetry.vehicle
     race_data = build_race_data(telemetry, snapshot)
 
-    ml_models.fallback_used.clear()
-    strategy_type, confidence = ml_models.predict_pit_strategy(race_data)
+    pit_prediction = ml_models.predict_pit_strategy(race_data)
     tire_prediction = ml_models.predict_tire_degradation(telemetry, race_data)
-    simulated = bool(ml_models.fallback_used) or race_data["is_simulated_input"]
+    strategy_type = pit_prediction["strategy_type"]
+    # Simulated if a heuristic was used or the input laps are simulated.
+    simulated = (pit_prediction["is_simulated"] or tire_prediction["is_simulated"]
+                 or race_data["is_simulated_input"])
+    sources = f"pit: {pit_prediction['source']}, tire: {tire_prediction['source']}"
+    if pit_prediction["model_run_id"] or tire_prediction["model_run_id"]:
+        sources += f", run {pit_prediction['model_run_id'] or tire_prediction['model_run_id']}"
 
     pit_strategy, _ = PitStrategy.objects.update_or_create(
         vehicle=vehicle,
         is_active=True,
         defaults={
             "recommended_lap": recommended_pit_lap(race_data, strategy_type),
-            "confidence": round(_confidence_value(confidence), 3),
+            "confidence": round(float(pit_prediction["confidence"]), 3),
             "strategy_type": strategy_type,
             "reasoning": (
                 f"Lap {race_data['current_lap']}, P{race_data['position']}: "
                 f"{race_data['stint_laps']} laps on tires, "
                 f"degradation {race_data['tire_degradation']:+.3f}s/lap, "
                 f"~{race_data['tire_laps_remaining']} tire laps and "
-                f"~{race_data['fuel_laps_remaining']} fuel laps left."
+                f"~{race_data['fuel_laps_remaining']} fuel laps left ({sources})."
             ),
             "is_simulated": simulated,
         },
     )
 
-    tire_laps = int(tire_prediction.get("predicted_laps_remaining", race_data["tire_laps_remaining"]))
+    tire_laps = int(tire_prediction["predicted_laps_remaining"])
     tire_strategy = TireStrategy.objects.create(
         vehicle=vehicle,
         predicted_laps_remaining=tire_laps,
-        degradation_rate=float(tire_prediction.get("grip_loss_rate", race_data["tire_degradation"])),
+        degradation_rate=float(tire_prediction["grip_loss_rate"]),
         optimal_change_lap=race_data["current_lap"] + tire_laps,
-        confidence=round(_confidence_value(tire_prediction.get("confidence", confidence)), 3),
+        confidence=round(float(tire_prediction["confidence"]), 3),
         is_simulated=simulated,
     )
 

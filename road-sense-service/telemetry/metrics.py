@@ -116,3 +116,23 @@ def gap_to_car_ahead(telemetry, snapshot=None):
         if other.position == telemetry.position - 1:
             return max(0.0, telemetry.gap_to_leader - other.gap_to_leader)
     return None
+
+
+def gap_to_car_behind(telemetry, snapshot=None):
+    """Seconds to the car one position behind, or None for the last car."""
+    snapshot = snapshot if snapshot is not None else latest_per_vehicle()
+    for other in snapshot:
+        if other.position == telemetry.position + 1:
+            return max(0.0, other.gap_to_leader - telemetry.gap_to_leader)
+    return None
+
+
+def best_stint_lap_time(vehicle, current_lap):
+    """Fastest non-pit lap (s) of the current stint up to current_lap, or None."""
+    pit_lap = last_pit_lap(vehicle, before_lap=current_lap)
+    queryset = TelemetryData.objects.filter(
+        vehicle=vehicle, is_pit_lap=False,
+        lap_number__gt=pit_lap or 0, lap_number__lte=current_lap,
+    ).order_by("lap_time")
+    best = queryset.values_list("lap_time", flat=True).first()
+    return best.total_seconds() if best is not None else None

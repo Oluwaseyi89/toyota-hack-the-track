@@ -266,6 +266,7 @@ BACKGROUND_JOB_INTERVALS = {
         "competitor_analysis": 600,
         "batch_simulations": 900,
         "data_retention": 3600,
+        "model_refresh": 21600,
     }.items()
 }
 
@@ -278,6 +279,8 @@ BACKGROUND_JOB_INTERVALS = {
 RACE_SIMULATION_ENABLED = env_bool("RACE_SIMULATION_ENABLED", True)
 SIMULATION_VEHICLE_COUNT = env_int("SIMULATION_VEHICLE_COUNT", 10)
 SIMULATION_RACE_LAPS = env_int("SIMULATION_RACE_LAPS", 40)
+# Race length used for the race_progress model feature (lap / total laps).
+RACE_TOTAL_LAPS = env_int("RACE_TOTAL_LAPS", SIMULATION_RACE_LAPS)
 
 TELEMETRY_LIVE_WINDOW_SECONDS = env_int("TELEMETRY_LIVE_WINDOW_SECONDS", 600)
 TELEMETRY_RETENTION_HOURS = env_int("TELEMETRY_RETENTION_HOURS", 168)
@@ -357,10 +360,21 @@ STORAGES = {
 
 
 # ---------------------------------------------------------------------------
-# ML models
+# ML models (trained on Kaggle, published to Supabase Storage)
 # ---------------------------------------------------------------------------
+# On first use each process downloads <prefix>/latest/manifest.json and the
+# model files it lists, verifies them and caches them in ML_MODELS_DIR. Without
+# Supabase settings, a manifest.json placed in ML_MODELS_DIR is used instead.
+# The "model_refresh" job picks up newly published runs.
 
+SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_MODELS_BUCKET = os.environ.get("SUPABASE_MODELS_BUCKET", "road-sense-models")
+SUPABASE_MODELS_PREFIX = os.environ.get("SUPABASE_MODELS_PREFIX", "models")
 ML_MODELS_DIR = os.environ.get("ML_MODELS_DIR", str(BASE_DIR / "ml_models"))
+ML_MODELS_ENABLED = env_bool("ML_MODELS_ENABLED", True)
+# Serve a model only if its cross-validated metrics beat the naive baseline.
+ML_REQUIRE_BEATS_BASELINE = env_bool("ML_REQUIRE_BEATS_BASELINE", True)
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
