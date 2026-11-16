@@ -6,13 +6,8 @@ class StrategyConfig(AppConfig):
     name = 'strategy'
 
     def ready(self):
-        # Load ML models at startup
-        from .ml_integration import StrategyMLModels
-        self.ml_models = StrategyMLModels()
-        
-        # Import and connect signals
-        try:
-            from . import signals
-            print("Strategy signals connected")
-        except ImportError:
-            pass  # Signals might not be implemented yet
+        # ML models are NOT loaded here: ready() also runs for migrate,
+        # collectstatic and every management command. strategy.model_registry
+        # loads them lazily, once per process, on first prediction.
+        from . import signals  # noqa: F401
+        print("Strategy signals connected")
