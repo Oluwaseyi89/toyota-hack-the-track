@@ -9,6 +9,7 @@ from statistics import fmean
 from django.conf import settings
 from django.utils import timezone
 
+from strategy.ml_integration import StrategyMLModels
 from strategy.services import build_race_data
 from telemetry import metrics
 from telemetry.models import WeatherData
@@ -55,7 +56,12 @@ def analyze_vehicle_performance(telemetry, snapshot=None):
 
     tire_loss = max(0.0, race_data["tire_degradation"]) * race_data["stint_laps"]
     fuel_loss = race_data["fuel_remaining"] * a["fuel_time_cost_s_per_liter"]
-    weather_loss = _weather_time_cost()
+    # Weather share of lap time: trained model when served, else assumptions.
+    weather_prediction = StrategyMLModels().predict_weather_impact(race_data)
+    if weather_prediction is not None:
+        weather_impact = weather_prediction["impact_fraction"]
+    else:
+        weather_impact = _weather_time_cost() / average
 
     last_clean = next(iter(metrics.clean_laps(laps)), telemetry)
     predicted_next = metrics.lap_seconds(last_clean) + race_data["tire_degradation"]
@@ -66,11 +72,11 @@ def analyze_vehicle_performance(telemetry, snapshot=None):
         sector_times=metrics.sector_averages(laps),
         tire_degradation_impact=round(tire_loss / average, 4),
         fuel_impact=round(fuel_loss / average, 4),
-        weather_impact=round(weather_loss / average, 4),
+        weather_impact=round(weather_impact, 4),
         predicted_lap_time=round(predicted_next, 3),
         actual_lap_time=round(metrics.lap_seconds(telemetry), 3),
-        # Fuel and weather costs always come from assumptions (there are no
-        # fuel sensors and no weather model yet), so this is always simulated.
+        # Fuel cost always comes from assumptions (the dataset has no fuel
+        # measurements, so no fuel model can be trained): always simulated.
         is_simulated=True,
     )
 
