@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Python 3.11 matches the version the models are trained with on Kaggle
+FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
